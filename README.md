@@ -1,12 +1,29 @@
 # Dim3: A 3D Object Understanding Machine
 
 **Course:** 15-288 Spring 2026
+
 **Project:** Query Answering Machine (QuAM) for 3D Meshes
+
+---
 
 ## Overview
 Dim3 is a machine learning project designed to translate raw 3D geometry into meaningful semantic and geometric insights. By serving as a preprocessing layer, Dim3 aims to bridge the gap between 3D spatial data and natural language understanding.
 
-This project is being developed in multiple iterations, starting from classical machine learning on handcrafted geometric features extracted via Blender, and scaling up to deep learning architectures.
+---
+
+## Architecture & Roadmap
+
+The project is structured as **five progressive model iterations**, each building on lessons learned from the previous one.
+
+| # | Iteration | Representation | Approach | Status |
+|---|-----------|---------------|----------|--------|
+| 1 | **Classical ML Baseline** | Handcrafted geometric features | TBD, candidates: SVM / Random Forest / KNN | 🔲 Planned |
+| 2 | **3D Voxel CNN** | Volumetric voxel grid | 3-D Convolutional Neural Network | 🔲 Planned |
+| 3 | **PointNet** | Raw point cloud | TBD, candidates: PointNet / PointNet++ | 🔲 Planned |
+| 4 | **Mesh GNN** | Graph (vertices + edges, maybe somehow faces as well) | Graph Neural Network | 🔲 Planned |
+| 5 | **Hybrid / Ensemble** | Multi-representation fusion | Learned ensemble of iterations 1-4 | 🔲 Planned |
+
+---
 
 ## Repository Structure
 
@@ -31,3 +48,16 @@ This project is being developed in multiple iterations, starting from classical 
 ├── requirements.txt
 ├── LISCENCE
 └── .gitignore
+```
+
+---
+
+## Contributing
+
+This is a university course project. External contributions are not expected, but feel free to open an issue if you spot something.
+
+---
+
+## License
+
+Distributed under the MIT License. See [LICENSE](LICENSE) for details.
