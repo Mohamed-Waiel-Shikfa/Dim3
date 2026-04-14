@@ -1,0 +1,18 @@
+The idea of working on 3D object understanding is interesting and ambitious, especially in the context of bridging 3D data with textual insights. However, the proposal currently suffers from significant ambiguity in problem definition, system design, and the underlying machine learning task.
+
+One major concern is the lack of clarity around input data. The proposal states that the system accepts “any 3D file,” which is not well defined. There are multiple 3D file formats, each with different structures and properties. Simply stating that everything will be converted into a .obj format is not sufficient. You need to clearly explain what information from the original files is preserved, what the .obj format contains, and how this representation will be used downstream in your pipeline.
+
+There is also a fundamental inconsistency in how the task is framed. At some points, the project is described as a classification problem, where 3D mesh files are categorized into predefined classes. At other points, it is described as a system that generates semantic descriptions of 3D objects. These are two very different tasks. A classification model assigns labels, while generating textual descriptions requires a different type of modeling approach. The proposal currently mixes these ideas without explaining how they are connected.
+
+The role of the query answering system is also unclear. If the system is based on classification, it is not evident how it will support the types of queries outlined in your appendix. Simply classifying an object does not directly enable rich question answering about that object. You need to clearly define how the outputs of your model will support the intended queries.
+
+Additionally, details about the dataset are vague. Mentioning a certain number of models per class is not enough. You need to specify the classes, the source of the data, and how the data will be structured and labeled. Without this, it is difficult to assess feasibility.
+
+Overall, the key issue is the lack of a clearly defined machine learning task. You need to decide whether this is a classification problem, a description generation problem, or a combination of both with a well defined pipeline. You must also clearly define the input, output, and intermediate representations, and explain how the system components work together to answer user queries. Without this clarity, the project is not yet in a form that can be meaningfully evaluated or implemented.
+
+Additional comments:
+No feature engineering design (D2.4).  How do you turn a variable-size mesh (some models have 500 vertices, others have 500,000) into some fixed-length feature vector? The literature confirms this is a critical point. Converting variable-topology mesh data into a fixed-length feature vector that is scale-invariant, orientation-invariant, and discriminative for fine-grained categories is an open research problem.
+
+How do you do all data wrangling part? (D2.3) This seems quite complicate for 3D meshes.
+
+In general the proposal seems overly ambitious and not feasible in a short time. The "preprocessing layer for an LLM" framing is intellectually interesting but technically it means the project has two exit conditions: either it works well enough to pass a classification task (in which case it's a classifier, not really an LLM preprocessor), or it integrates with an LLM (in which case it needs specific advanced techniques to be used further).
