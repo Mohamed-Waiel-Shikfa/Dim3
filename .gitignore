@@ -226,3 +226,7 @@ __marimo__/
 *.gltf
 *.abc
 *.vdb
+
+!data/fruit/*
+!data/fruit_objs/*
+!data/fruit_remeshed/*

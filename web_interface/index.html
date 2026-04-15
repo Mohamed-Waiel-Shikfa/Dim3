@@ -1,1 +1,233 @@
-fun fact: ... eh i don't have any
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Model Viewer</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #222;
+            font-family: sans-serif;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+        #drop-zone {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 10;
+        }
+        #drop-zone.active {
+            opacity: 1;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            pointer-events: none;
+        }
+    </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="ui">
+        Drop a .glb, .gltf, .obj, .stl, or .fbx file here.<br>
+        Left Click: Orbit | Right Click: Pan | Scroll: Zoom
+    </div>
+    <div id="drop-zone">Drop 3D Model Here</div>
+    <div id="canvas-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+
+        // --- Setup Scene, Camera, Renderer ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x333333);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(5, 5, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        // Enable shadows for a better look
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        // --- Controls (Blender-like movement) ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; // Smooth camera movements
+        controls.dampingFactor = 0.05;
+
+        // --- Lighting ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        directionalLight.position.set(10, 20, 10);
+        directionalLight.castShadow = true;
+        scene.add(directionalLight);
+
+        // Add a simple grid floor
+        const gridHelper = new THREE.GridHelper(20, 20, 0x888888, 0x444444);
+        scene.add(gridHelper);
+
+        // --- Variable to hold the current loaded model ---
+        let currentModel = null;
+
+        // --- Drag and Drop Logic ---
+        const dropZone = document.getElementById('drop-zone');
+
+        window.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('active');
+        });
+
+        window.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('active');
+        });
+
+        window.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('active');
+
+            if (e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                loadModel(file);
+            }
+        });
+
+        function loadModel(file) {
+            const extension = file.name.split('.').pop().toLowerCase();
+            const url = URL.createObjectURL(file); // Create a temporary local URL for the file
+
+            // Remove the old model if one exists
+            if (currentModel) {
+                scene.remove(currentModel);
+                currentModel = null;
+            }
+
+            let loader;
+
+            // Pick the right loader based on the file extension
+            switch (extension) {
+                case 'gltf':
+                case 'glb':
+                    loader = new GLTFLoader();
+                    loader.load(url, (gltf) => processModel(gltf.scene), undefined, handleError);
+                    break;
+                case 'obj':
+                    loader = new OBJLoader();
+                    loader.load(url, (obj) => processModel(obj), undefined, handleError);
+                    break;
+                case 'stl':
+                    loader = new STLLoader();
+                    loader.load(url, (geometry) => {
+                        const material = new THREE.MeshStandardMaterial({ color: 0x909090, roughness: 0.4 });
+                        const mesh = new THREE.Mesh(geometry, material);
+                        processModel(mesh);
+                    }, undefined, handleError);
+                    break;
+                case 'fbx':
+                    loader = new FBXLoader();
+                    loader.load(url, (fbx) => processModel(fbx), undefined, handleError);
+                    break;
+                default:
+                    alert(`Unsupported file format: .${extension}. Please use .glb, .obj, .stl, or .fbx.`);
+            }
+        }
+
+        // Centers and scales the model so it fits perfectly in the camera view
+        function processModel(model) {
+            currentModel = model;
+
+            // Compute the bounding box of the object
+            const box = new THREE.Box3().setFromObject(currentModel);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+
+            // Find the largest dimension
+            const maxDim = Math.max(size.x, size.y, size.z);
+
+            // Scale down/up to fit within a 5-unit imaginary box
+            const scale = 5 / maxDim;
+            currentModel.scale.setScalar(scale);
+
+            // Recompute bounding box after scaling
+            box.setFromObject(currentModel);
+            box.getCenter(center);
+
+            // Center the model in the scene
+            currentModel.position.sub(center);
+
+            // Allow the model to cast and receive shadows
+            currentModel.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+
+            scene.add(currentModel);
+        }
+
+        function handleError(error) {
+            console.error('Error loading model:', error);
+            alert('Failed to load the model. Check the console for details.');
+        }
+
+        // --- Window Resize Handler ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // Required if damping is enabled
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
