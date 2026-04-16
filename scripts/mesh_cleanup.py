@@ -81,7 +81,7 @@ def process_mesh(filepath, output_path):
     normalize_transform(obj)
 
     # 3. First Boolean Manifold pass (as requested)
-    apply_boolean_manifold(obj)
+    # apply_boolean_manifold(obj)
 
     # 4. Make a copy for Shrinkwrap target
     copy_mesh_data = obj.data.copy()
@@ -98,20 +98,22 @@ def process_mesh(filepath, output_path):
     # 5. Voxel Remesh
     print("  -> Running Voxel Remesh...", end="")
     step_start = time.time()
-    obj.data.remesh_voxel_size = 0.1
+    # obj.data.remesh_voxel_size = 0.01
+    # to get low poly object use the size below
+    obj.data.remesh_voxel_size = 0.05
     obj.data.use_remesh_fix_poles = True
     obj.data.use_remesh_preserve_volume = True
     bpy.ops.object.voxel_remesh()
     print(f"     Done in {time.time() - step_start:.2f} seconds")
 
-    # 6. Quadriflow Remesh
-    try:
-        print("  -> Running Quadriflow Remesh...", end="")
-        step_start = time.time()
-        bpy.ops.object.quadriflow_remesh(target_faces=16000)
-        print(f"     Done in {time.time() - step_start:.2f} seconds")
-    except Exception as e:
-        print(f"Quadriflow failed on {filepath}, continuing with voxel mesh. Error: {e}")
+    # # 6. Quadriflow Remesh
+    # # try:
+    # #     print("  -> Running Quadriflow Remesh...", end="")
+    # #     step_start = time.time()
+    # #     bpy.ops.object.quadriflow_remesh(target_faces=16000)
+    # #     print(f"     Done in {time.time() - step_start:.2f} seconds")
+    # # except Exception as e:
+    # #     print(f"Quadriflow failed on {filepath}, continuing with voxel mesh. Error: {e}")
 
     # 7. Merge by distance
     bpy.ops.object.mode_set(mode='EDIT')
@@ -119,10 +121,7 @@ def process_mesh(filepath, output_path):
     bpy.ops.mesh.remove_doubles(threshold=0.001)
     bpy.ops.object.mode_set(mode='OBJECT')
 
-    # 8. Second Boolean Manifold pass
-    apply_boolean_manifold(obj)
-
-    # 9. Shrinkwrap modifier
+    # 8. Shrinkwrap modifier
     print("  -> Running Shrinkwrap modifier...", end="")
     step_start = time.time()
     shrink_mod = obj.modifiers.new(name="Shrinkwrap", type='SHRINKWRAP')
@@ -130,6 +129,9 @@ def process_mesh(filepath, output_path):
     shrink_mod.wrap_method = 'NEAREST_SURFACEPOINT'
     bpy.ops.object.modifier_apply(modifier="Shrinkwrap")
     print(f"     Done in {time.time() - step_start:.2f} seconds")
+
+    # 9. Boolean Manifold pass
+    apply_boolean_manifold(obj)
 
     # 10. Recalculate Normals (Outside)
     bpy.ops.object.mode_set(mode='EDIT')
