@@ -17,11 +17,9 @@ The project is structured as **five progressive model iterations**, each buildin
 
 | # | Iteration | Representation | Approach | Status |
 |---|-----------|---------------|----------|--------|
-| 1 | **Classical ML Baseline** | Handcrafted geometric features | TBD, candidates: SVM / Random Forest / KNN | 🔲 Planned |
-| 2 | **3D Voxel CNN** | Volumetric voxel grid | 3-D Convolutional Neural Network | 🔲 Planned |
-| 3 | **PointNet** | Raw point cloud | TBD, candidates: PointNet / PointNet++ | 🔲 Planned |
-| 4 | **Mesh GNN** | Graph (vertices + edges, maybe somehow faces as well) | Graph Neural Network | 🔲 Planned |
-| 5 | **Hybrid / Ensemble** | Multi-representation fusion | Learned ensemble of iterations 1-4 | 🔲 Planned |
+| 1 | **3D Voxel CNN** | Volumetric voxel grid | 3-D Convolutional Neural Network | 🔲 Planned |
+| 2 | **PointNet** | Raw point cloud | TBD, candidates: PointNet / PointNet++ | 🔲 Planned |
+| 3 | **Mesh GNN** | Graph (vertices + edges, maybe somehow faces as well) | Graph Neural Network | 🔲 Planned |
 
 ---
 
