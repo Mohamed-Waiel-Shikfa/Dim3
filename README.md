@@ -27,25 +27,45 @@ The project is structured as **five progressive model iterations**, each buildin
 
 ```text
 .
-├── data/
-│   └── fruits/                  # Sample 3D meshes (.obj, .stl) for pipeline testing
-├── models/
-│   └── placeholder.py           # ML models and architectures (Iterative updates)
-├── notebooks/
-│   ├── DataPreparation.ipynb    # Deliverable D2: Data wrangling, EDA, and feature extraction
-│   └── QuAM_report.ipynb        # Deliverable D3: Model iterations and QuAM interface demo
-├── other/
-│   ├── feedback_on_D1.txt       # D1 proposal Feedback
-│   ├── project_outline.pdf      # Project rubrics and guidelines
-│   └── project_Proposal_D1.pdf  # D1 proposal
-├── scripts/
-│   └── blender_pipeline.py      # Headless Blender Python script (bpy) for data wrangling
-├── web_interface/
-│   └── index.html               # Frontend for the Query Answering Machine
+├── data
+│   ├── fruit
+│   ├── fruit_dataset.pdf
+│   ├── fruit_graph
+│   ├── fruit_low_poly
+│   ├── fruit_objs
+│   ├── fruit_points
+│   ├── fruit_remeshed
+│   └── fruit_voxels
+├── LICENSE
+├── models
+│   └── placeholder.py
+├── notebooks
+│   ├── DataPreparation.ipynb
+│   └── QuAM_report.ipynb
+├── other
+│   ├── feedback_on_D1.txt
+│   ├── project_outline.pdf
+│   └── project_Proposal_D1.pdf
 ├── README.md
 ├── requirements.txt
-├── LISCENCE
-└── .gitignore
+├── scripts
+│   ├── 3d_file_to_obj.py
+│   ├── fruit_scraping.py
+│   ├── mesh_cleanup.py
+│   ├── mesh_to_3D_cnn_input_feature.py
+│   ├── mesh_to_gnn_input_feature.py
+│   ├── mesh_to_pointnet_input_feature.py
+│   ├── model_sorter.html
+│   └── verify_model_input.py
+└── web_interface
+    ├── 3d_object_viewer.html
+    └── dim3_engine
+        ├── main.py
+        └── templates
+            ├── base.html
+            ├── data_processing.html
+            ├── model_evaluation.html
+            └── model_training.html
 ```
 
 ---
