@@ -29,3 +29,8 @@ tqdm
 fastapi
 uvicorn
 jinja2
+
+# ── Python 3D Geometry & Mesh Processing ──────────────────────────────────────
+trimesh
+rtree
+scipy

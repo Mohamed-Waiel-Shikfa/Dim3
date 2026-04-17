@@ -62,7 +62,7 @@ def apply_boolean_manifold(obj):
     bpy.data.objects.remove(cube, do_unlink=True)
     print(f"     Done in {time.time() - step_start:.2f} seconds")
 
-def process_mesh(filepath, output_path, voxel_size=0.01):
+def process_mesh(filepath, output_path, voxel_size):
     """Re-mesh pipeline. voxel_size of 0.01 for a high res mesh; 0.05 for a low res mesh"""
 
     total_start = time.time()
@@ -161,12 +161,18 @@ if __name__ == "__main__":
 
     args = argv[argv.index("--") + 1:]
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--input", required=True, help="Input directory")
+    parser.add_argument("--output", required=True, help="Output directory")
+    parser.add_argument(
+        "--voxel_size",
+        type=float,
+        default=0.01,
+        help="Size of voxels (default: 0.01; use 0.05 for a low poly result)"
+    )
     parsed_args = parser.parse_args(args)
 
     for filename in os.listdir(parsed_args.input):
         if filename.endswith(".obj"):
             in_path = os.path.join(parsed_args.input, filename)
             out_path = os.path.join(parsed_args.output, filename)
-            process_mesh(in_path, out_path)
+            process_mesh(in_path, out_path, voxel_size)
