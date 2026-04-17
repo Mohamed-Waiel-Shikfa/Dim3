@@ -8,8 +8,8 @@ from tqdm import tqdm
 #config
 SAVE_DIR = "fruit_objs"
 METADATA_FILE = "fruit_metadata.json"
-MAX_OBJECTS = 1000
-BATCH_SIZE = 50
+MAX_OBJECTS = 10_000
+BATCH_SIZE = 200
 RANDOM_SEED = 42
 
 os.makedirs(SAVE_DIR, exist_ok=True)
@@ -68,7 +68,7 @@ BLACKLIST = [
 
 #confirmation tags
 FRUIT_CONFIRMATION_TAGS = [
-    "fruit", "food", "nature", "plant", "vegetable", "produce", "organic", 
+    "fruit", "food", "nature", "plant", "vegetable", "produce", "organic",
     "botany", "botanical", "healthy", "garden", "agriculture", "orchard"
 ]
 
@@ -76,7 +76,7 @@ FRUIT_CONFIRMATION_TAGS = [
 uids_to_download = []
 seen_uids = set()
 uid_to_label = {}
-TARGET_MIN_COUNT = 40
+TARGET_MIN_COUNT = 350
 
 #preprocess metadata
 processed_meta = {}
