@@ -7,45 +7,127 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <style>
+        :root {
+            transition: all 0.7s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        ::-webkit-scrollbar { display: none; }
+        * { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Mode 0: Data Processing (Pumpkin Amber) */
+        body.theme-0 {
+            --bg-base: #1c140d; /* Deep, crushed orange-brown */
+            --bg-panel: #261b12; /* Slightly elevated panel */
+            --accent: #f97316; /* Matte Pumpkin */
+            --accent-dim: rgba(249, 115, 22, 0.15);
+            --text-glow: 0 0 15px rgba(249, 115, 22, 0.25);
+        }
+
+        /* Mode 1: Model Training (Crimson Red) */
+        body.theme-1 {
+            --bg-base: #1a1012; /* Deep, crushed crimson-shadow */
+            --bg-panel: #251619;
+            --accent: #f43f5e; /* Matte Crimson */
+            --accent-dim: rgba(244, 63, 94, 0.15);
+            --text-glow: 0 0 15px rgba(244, 63, 94, 0.25);
+        }
+
+        /* Mode 2: Model Evaluation (Matte Sage) */
+        body.theme-2 {
+            --bg-base: #0f1813; /* Deep, crushed forest shadow */
+            --bg-panel: #15221b;
+            --accent: #10b981; /* Matte Sage */
+            --accent-dim: rgba(16, 185, 129, 0.15);
+            --text-glow: 0 0 15px rgba(16, 185, 129, 0.25);
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: #e2e8f0;
+        }
+
+        /* Page Content Swap Animation */
+        .content-enter {
+            animation: slideFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes slideFade {
+            from { opacity: 0; transform: translateY(15px) scale(0.98); filter: blur(4px); }
+            to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+    </style>
 </head>
-<body class="bg-slate-50 transition-colors duration-500" id="body-bg">
 
-    <nav class="fixed top-8 left-10 w-[calc(100%-80px)] h-[70px] bg-white border border-slate-200 rounded-2xl px-6 flex items-center justify-between z-50 shadow-sm">
+<body x-data="workflowState()" x-init="init()" :class="'theme-' + activeIndex" class="transition-colors duration-700 ease-in-out font-sans antialiased overflow-hidden flex flex-col h-screen w-screen">
 
-        <div x-data="{ open: false, active: 'Data Processing' }" class="relative w-max">
-            <div @click="open = !open" class="flex items-center h-[38px] px-4 cursor-pointer hover:bg-slate-100 rounded-lg transition-colors">
-                <span x-text="active" class="text-slate-700 font-semibold text-sm"></span>
-                <svg class="w-4 h-4 ml-2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+    <nav class="absolute top-8 left-10 w-[calc(100%-80px)] h-[70px] bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-2xl px-6 flex items-center justify-between z-50 shadow-2xl transition-colors duration-700 backdrop-blur-md">
+
+        <div class="flex items-center h-full">
+
+            <div class="relative h-[44px] w-max min-w-[200px] rounded-xl bg-[#00000030] border border-[var(--accent-dim)] shadow-inner transition-all duration-300"
+                :class="open ? 'overflow-visible' : 'overflow-hidden'"
+                @mouseenter="open = true" @mouseleave="open = false" @wheel.prevent="handleScroll($event)">
+                <div class="absolute top-0 left-0 w-full rounded-xl transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+                    :class="open ? 'bg-[var(--bg-panel)] border border-[var(--accent-dim)] shadow-[0_10px_40px_var(--bg-base)] z-50' : 'border border-transparent'"
+                    :style="'transform: translateY(calc(-44px * ' + activeIndex + '));'">
+                    <template x-for="(mode, index) in modes" :key="index">
+                        <div class="h-[44px] flex items-center px-5 cursor-pointer transition-colors duration-300 whitespace-nowrap"
+                                @click="selectMode(index); open = false"
+                                :class="activeIndex === index ? 'text-[var(--accent)] [text-shadow:var(--text-glow)] font-bold' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'">
+                            <span x-text="mode.name" class="tracking-wide text-[0.85rem] uppercase"></span>
+                        </div>
+                    </template>
+                </div>
             </div>
 
-            <div x-show="open" @click.away="open = false" x-transition class="absolute top-full left-0 mt-2 w-max min-w-[200px] bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden z-50">
+            <div class="w-px h-8 bg-white/10 mx-6"></div>
 
-                <button @click="active = 'Data Processing'; open = false; document.getElementById('body-bg').className = 'bg-slate-50 transition-colors duration-500'"
-                        hx-get="/pages/data_processing" hx-target="#main-content"
-                        class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors">
-                    Data Processing
-                </button>
-
-                <button @click="active = 'Model Training'; open = false; document.getElementById('body-bg').className = 'bg-indigo-50 transition-colors duration-500'"
-                        hx-get="/pages/model_training" hx-target="#main-content"
-                        class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-900 transition-colors">
-                    Model Training
-                </button>
-
-                <button @click="active = 'Model Evaluation'; open = false; document.getElementById('body-bg').className = 'bg-emerald-50 transition-colors duration-500'"
-                        hx-get="/pages/model_evaluation" hx-target="#main-content"
-                        class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-emerald-50 hover:text-emerald-900 transition-colors">
-                    Model Evaluation
-                </button>
-            </div>
+            <div id="navbar-tools" class="flex items-center gap-4 h-full"></div>
         </div>
 
-        <div class="text-xs font-bold tracking-widest text-slate-400">DIM3 WORKFLOW</div>
+        <div class="text-[0.7rem] font-black tracking-[0.2em] text-[var(--accent)] opacity-50 uppercase transition-colors duration-700">DIM3 Workflow</div>
     </nav>
 
-    <main id="main-content" class="min-h-screen pt-[120px]">
-        <div hx-get="/pages/data_processing" hx-trigger="load"></div>
+    <main id="main-content" class="flex-1 w-full pt-[110px] pb-8 px-10 flex overflow-hidden">
+        <div hx-get="/pages/data_processing" hx-trigger="load" class="w-full h-full flex"></div>
     </main>
 
+    <script>
+        function workflowState() {
+            return {
+                open: false,
+                activeIndex: 0,
+                isScrolling: false,
+                modes: [
+                    { name: 'Data Processing', endpoint: '/pages/data_processing' },
+                    { name: 'Model Training', endpoint: '/pages/model_training' },
+                    { name: 'Model Evaluation', endpoint: '/pages/model_evaluation' }
+                ],
+                init() {
+                    htmx.onLoad(function(content) {
+                        if (content.id !== 'main-content') {
+                            content.classList.add('content-enter');
+                        }
+                    });
+                },
+                handleScroll(e) {
+                    if (!this.open || this.isScrolling) return;
+                    let direction = e.deltaY > 0 ? 1 : -1;
+                    let newIndex = this.activeIndex + direction;
+                    if (newIndex >= 0 && newIndex < this.modes.length) {
+                        this.isScrolling = true;
+                        this.selectMode(newIndex);
+                        setTimeout(() => { this.isScrolling = false; }, 400);
+                    }
+                },
+                selectMode(index) {
+                    if (this.activeIndex === index) return;
+                    this.activeIndex = index;
+                    htmx.ajax('GET', this.modes[index].endpoint, {target: '#main-content', swap: 'innerHTML'});
+                }
+            }
+        }
+    </script>
 </body>
 </html>
