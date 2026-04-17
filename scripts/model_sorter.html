@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Model Sorter</title>
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d1a;
+      --panel:     #13132b;
+      --border:    #2a2a4a;
+      --text:      #d4d4f0;
+      --muted:     #6b6b9a;
+      --accept:    #22c55e;
+      --flag:      #ef4444;
+      --accent:    #818cf8;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* ── SETUP SCREEN ── */
+    #setup-screen {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 28px;
+    }
+
+    #setup-screen h1 {
+      font-size: 2.4rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    #setup-screen p {
+      color: var(--muted);
+      font-size: 1rem;
+      max-width: 360px;
+      line-height: 1.6;
+    }
+
+    .btn-primary {
+      padding: 14px 36px;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), #c084fc);
+      color: #fff;
+      cursor: pointer;
+      transition: opacity .2s, transform .1s;
+    }
+    .btn-primary:hover  { opacity: .9; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-danger {
+      padding: 12px 28px;
+      font-size: .95rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      background: var(--flag);
+      color: #fff;
+      cursor: pointer;
+      transition: opacity .2s;
+    }
+    .btn-danger:hover { opacity: .85; }
+
+    .btn-ghost {
+      padding: 12px 28px;
+      font-size: .95rem;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── VIEWER SCREEN ── */
+    #viewer-screen {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    /* header */
+    #viewer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #folder-name {
+      font-size: .85rem;
+      color: var(--muted);
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #progress-text {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: .5px;
+    }
+
+    #flagged-tally {
+      font-size: .85rem;
+      color: var(--flag);
+      font-weight: 500;
+      min-width: 80px;
+      text-align: right;
+    }
+
+    /* model area */
+    #model-wrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      transition: box-shadow .25s;
+    }
+
+    #model-wrap.state-flagged  { box-shadow: inset 0 0 0 4px var(--flag); }
+    #model-wrap.state-accepted { box-shadow: inset 0 0 0 4px transparent; }
+
+    model-viewer {
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      --poster-color: var(--bg);
+    }
+
+    /* loading overlay */
+    #loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 10;
+      transition: opacity .3s;
+    }
+    #loading-overlay.hidden { opacity: 0; pointer-events: none; }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #loading-filename {
+      font-size: .85rem;
+      color: var(--muted);
+      max-width: 320px;
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* flag flash overlay */
+    #flash-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 5;
+    }
+    #flash-overlay.flash-flag   { background: rgba(239,68,68,.18); animation: flash .35s ease-out; }
+    #flash-overlay.flash-accept { background: rgba(34,197,94,.12); animation: flash .35s ease-out; }
+    @keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+    /* footer */
+    #viewer-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 24px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+      gap: 16px;
+    }
+
+    #current-filename {
+      font-size: .9rem;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    #status-badge {
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: .8rem;
+      font-weight: 700;
+      letter-spacing: .5px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    #status-badge.badge-accepted { background: rgba(34,197,94,.15); color: var(--accept); border: 1px solid var(--accept); }
+    #status-badge.badge-flagged  { background: rgba(239,68,68,.15);  color: var(--flag);   border: 1px solid var(--flag); }
+    #status-badge.badge-unset    { background: rgba(107,107,154,.1); color: var(--muted);  border: 1px solid var(--border); }
+
+    #key-hints {
+      display: flex;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+
+    .hint {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: .8rem;
+      color: var(--muted);
+    }
+
+    .key {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      font-size: .8rem;
+      color: var(--text);
+      background: #1e1e38;
+    }
+
+    /* ── DONE SCREEN ── */
+    #done-screen {
+      width: 100%;
+      max-width: 560px;
+      padding: 48px 40px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    #done-screen h2 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    #done-summary {
+      color: var(--muted);
+      font-size: .95rem;
+      line-height: 1.5;
+    }
+
+    #done-summary span { color: var(--flag); font-weight: 600; }
+
+    #flagged-list-wrap {
+      max-height: 240px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+    }
+    #flagged-list-wrap::-webkit-scrollbar { width: 4px; }
+    #flagged-list-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    #flagged-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    #flagged-list li {
+      font-size: .82rem;
+      color: var(--muted);
+      padding: 3px 0;
+      border-bottom: 1px solid #1e1e38;
+      font-family: monospace;
+    }
+    #flagged-list li:last-child { border-bottom: none; }
+
+    #done-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    #none-flagged-msg {
+      color: var(--accept);
+      font-size: .95rem;
+    }
+
+    /* ── HIDDEN UTILITY ── */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- SETUP -->
+  <div id="setup-screen">
+    <h1>3D Model Sorter</h1>
+    <p>Pick a folder containing <code>.glb</code> files. Step through each model and accept or flag it. Flagged files can be deleted at the end.</p>
+    <button class="btn-primary" onclick="pickFolder()">Choose Folder</button>
+    <p id="setup-error" style="color:var(--flag);font-size:.85rem"></p>
+  </div>
+
+  <!-- VIEWER -->
+  <div id="viewer-screen" class="hidden">
+    <div id="viewer-header">
+      <span id="folder-name"></span>
+      <span id="progress-text">1 / 1</span>
+      <span id="flagged-tally"></span>
+    </div>
+
+    <div id="model-wrap" class="state-accepted">
+      <div id="loading-overlay">
+        <div class="spinner"></div>
+        <span id="loading-filename"></span>
+      </div>
+      <div id="flash-overlay"></div>
+      <model-viewer
+        id="mv"
+        camera-controls
+        auto-rotate
+        auto-rotate-delay="800"
+        rotation-per-second="15deg"
+        shadow-intensity="0.8"
+        environment-image="neutral"
+        exposure="1">
+      </model-viewer>
+    </div>
+
+    <div id="viewer-footer">
+      <span id="current-filename"></span>
+      <span id="status-badge" class="badge-unset">—</span>
+      <div id="key-hints">
+        <span class="hint"><span class="key">←</span> Flag</span>
+        <span class="hint"><span class="key">→</span> Accept</span>
+        <span class="hint"><span class="key">↑</span> Back</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- DONE -->
+  <div id="done-screen" class="hidden">
+    <h2>All done!</h2>
+    <p id="done-summary"></p>
+    <div id="flagged-list-wrap" class="hidden">
+      <ul id="flagged-list"></ul>
+    </div>
+    <p id="none-flagged-msg" class="hidden">Nothing to delete — all models accepted.</p>
+    <div id="done-actions">
+      <button id="delete-btn" class="btn-danger hidden" onclick="deleteAll()">Delete Flagged Files</button>
+      <button class="btn-ghost" onclick="restart()">Start Over</button>
+    </div>
+  </div>
+
+  <script>
+    let dirHandle   = null;
+    let glbFiles    = [];       // array of FileSystemFileHandle
+    let current     = 0;
+    let flagged     = new Set();// indices flagged for deletion
+    let decided     = new Set();// indices where user made a choice (left or right)
+    let blobUrl     = null;
+    let isLoading   = false;
+
+    const mv = document.getElementById('mv');
+
+    // ── screen switching ──────────────────────────────────────────────
+    function show(id) {
+      ['setup-screen', 'viewer-screen', 'done-screen'].forEach(s => {
+        document.getElementById(s).classList.toggle('hidden', s !== id);
+      });
+    }
+
+    // ── folder picker ─────────────────────────────────────────────────
+    async function pickFolder() {
+      try {
+        dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          document.getElementById('setup-error').textContent = 'Could not open folder: ' + e.message;
+        }
+        return;
+      }
+
+      glbFiles = [];
+      for await (const entry of dirHandle.values()) {
+        if (entry.kind === 'file' && entry.name.toLowerCase().endsWith('.glb')) {
+          glbFiles.push(entry);
+        }
+      }
+      glbFiles.sort((a, b) => a.name.localeCompare(b.name));
+
+      if (glbFiles.length === 0) {
+        document.getElementById('setup-error').textContent = 'No .glb files found in that folder.';
+        return;
+      }
+
+      current = 0;
+      flagged.clear();
+      decided.clear();
+      show('viewer-screen');
+      document.getElementById('folder-name').textContent = dirHandle.name;
+      loadModel(current);
+    }
+
+    // ── model loading ─────────────────────────────────────────────────
+    async function loadModel(index) {
+      if (isLoading) return;
+      isLoading = true;
+
+      const overlay = document.getElementById('loading-overlay');
+      const loadName = document.getElementById('loading-filename');
+      overlay.classList.remove('hidden');
+      loadName.textContent = glbFiles[index].name;
+
+      if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
+
+      const file = await glbFiles[index].getFile();
+      blobUrl = URL.createObjectURL(file);
+      mv.src = blobUrl;
+
+      // model-viewer fires 'load' when ready, 'error' on failure
+      await new Promise((resolve) => {
+        const onLoad  = () => { mv.removeEventListener('load', onLoad); mv.removeEventListener('error', onErr); resolve(); };
+        const onErr   = () => { mv.removeEventListener('load', onLoad); mv.removeEventListener('error', onErr); resolve(); };
+        mv.addEventListener('load',  onLoad);
+        mv.addEventListener('error', onErr);
+      });
+
+      overlay.classList.add('hidden');
+      isLoading = false;
+      updateUI();
+    }
+
+    // ── UI refresh ────────────────────────────────────────────────────
+    function updateUI() {
+      const total = glbFiles.length;
+      const isFlagged  = flagged.has(current);
+      const isDecided  = decided.has(current);
+
+      document.getElementById('progress-text').textContent = `${current + 1} / ${total}`;
+      document.getElementById('flagged-tally').textContent =
+        flagged.size > 0 ? `${flagged.size} flagged` : '';
+      document.getElementById('current-filename').textContent = glbFiles[current].name;
+
+      const wrap  = document.getElementById('model-wrap');
+      const badge = document.getElementById('status-badge');
+
+      if (!isDecided) {
+        wrap.className  = 'state-accepted';
+        badge.className = 'badge-unset';
+        badge.textContent = '—';
+      } else if (isFlagged) {
+        wrap.className  = 'state-flagged';
+        badge.className = 'badge-flagged';
+        badge.textContent = '✕ FLAGGED';
+      } else {
+        wrap.className  = 'state-accepted';
+        badge.className = 'badge-accepted';
+        badge.textContent = '✓ ACCEPTED';
+      }
+    }
+
+    // ── navigation ────────────────────────────────────────────────────
+    function flash(type) {
+      const el = document.getElementById('flash-overlay');
+      el.className = '';
+      void el.offsetWidth; // reflow to restart animation
+      el.className = type === 'flag' ? 'flash-flag' : 'flash-accept';
+    }
+
+    function goNext() {
+      if (current < glbFiles.length - 1) {
+        current++;
+        loadModel(current);
+      } else {
+        showDone();
+      }
+    }
+
+    function goPrev() {
+      if (current > 0) {
+        current--;
+        loadModel(current);
+      }
+    }
+
+    function accept() {
+      if (isLoading) return;
+      flash('accept');
+      flagged.delete(current);
+      decided.add(current);
+      goNext();
+    }
+
+    function flagCurrent() {
+      if (isLoading) return;
+      flash('flag');
+      flagged.add(current);
+      decided.add(current);
+      goNext();
+    }
+
+    // ── keyboard ──────────────────────────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+      if (!document.getElementById('viewer-screen').classList.contains('hidden')) {
+        if (e.key === 'ArrowRight') { e.preventDefault(); accept(); }
+        if (e.key === 'ArrowLeft')  { e.preventDefault(); flagCurrent(); }
+        if (e.key === 'ArrowUp')    { e.preventDefault(); goPrev(); }
+      }
+    });
+
+    // ── done screen ───────────────────────────────────────────────────
+    function showDone() {
+      show('done-screen');
+      const count = flagged.size;
+
+      document.getElementById('done-summary').innerHTML =
+        count === 0
+          ? 'You went through all <strong>' + glbFiles.length + '</strong> models. Nothing was flagged.'
+          : 'You went through all <strong>' + glbFiles.length + '</strong> models. '
+          + '<span>' + count + ' file' + (count > 1 ? 's are' : ' is') + ' flagged for deletion.</span>';
+
+      const listWrap = document.getElementById('flagged-list-wrap');
+      const list     = document.getElementById('flagged-list');
+      const noneMsg  = document.getElementById('none-flagged-msg');
+      const delBtn   = document.getElementById('delete-btn');
+
+      list.innerHTML = '';
+      if (count > 0) {
+        listWrap.classList.remove('hidden');
+        noneMsg.classList.add('hidden');
+        delBtn.classList.remove('hidden');
+        [...flagged].sort((a, b) => a - b).forEach(idx => {
+          const li = document.createElement('li');
+          li.textContent = glbFiles[idx].name;
+          list.appendChild(li);
+        });
+      } else {
+        listWrap.classList.add('hidden');
+        noneMsg.classList.remove('hidden');
+        delBtn.classList.add('hidden');
+      }
+    }
+
+    // ── deletion ──────────────────────────────────────────────────────
+    async function deleteAll() {
+      const count = flagged.size;
+      const names = [...flagged].sort((a, b) => a - b).map(i => glbFiles[i].name);
+      const confirmed = confirm(
+        `Permanently delete ${count} file${count > 1 ? 's' : ''}?\n\n` +
+        names.join('\n') +
+        '\n\nThis cannot be undone.'
+      );
+      if (!confirmed) return;
+
+      let deleted = 0;
+      const deletedNames = [];
+      const errors = [];
+      for (const idx of flagged) {
+        try {
+          await dirHandle.removeEntry(glbFiles[idx].name);
+          deletedNames.push(glbFiles[idx].name);
+          deleted++;
+        } catch (e) {
+          errors.push(glbFiles[idx].name + ': ' + e.message);
+        }
+      }
+
+      // write log file
+      if (deletedNames.length > 0) {
+        try {
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const logName   = `deleted_${timestamp}.txt`;
+          const logHandle = await dirHandle.getFileHandle(logName, { create: true });
+          const writable  = await logHandle.createWritable();
+          await writable.write(
+            `Deleted on ${new Date().toLocaleString()}\n` +
+            `${'─'.repeat(40)}\n` +
+            deletedNames.join('\n') + '\n'
+          );
+          await writable.close();
+          const suffix = `\n\nLog saved to: ${logName}`;
+          if (errors.length > 0) {
+            alert(`Deleted ${deleted} file${deleted !== 1 ? 's' : ''}.\n\nFailed:\n${errors.join('\n')}${suffix}`);
+          } else {
+            alert(`Deleted ${deleted} file${deleted !== 1 ? 's' : ''} successfully.${suffix}`);
+          }
+        } catch (e) {
+          alert(`Deleted ${deleted} file${deleted !== 1 ? 's' : ''}, but could not save log: ${e.message}`);
+        }
+      } else if (errors.length > 0) {
+        alert(`Nothing deleted.\n\nFailed:\n${errors.join('\n')}`);
+      }
+      restart();
+    }
+
+    // ── restart ───────────────────────────────────────────────────────
+    function restart() {
+      if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
+      dirHandle = null; glbFiles = []; flagged.clear(); decided.clear(); current = 0;
+      document.getElementById('setup-error').textContent = '';
+      show('setup-screen');
+    }
+  </script>
+</body>
+</html>
