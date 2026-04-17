@@ -62,7 +62,9 @@ def apply_boolean_manifold(obj):
     bpy.data.objects.remove(cube, do_unlink=True)
     print(f"     Done in {time.time() - step_start:.2f} seconds")
 
-def process_mesh(filepath, output_path):
+def process_mesh(filepath, output_path, voxel_size=0.01):
+    """Re-mesh pipeline. voxel_size of 0.01 for a high res mesh; 0.05 for a low res mesh"""
+
     total_start = time.time()
     clear_scene()
 
@@ -98,9 +100,7 @@ def process_mesh(filepath, output_path):
     # 5. Voxel Remesh
     print("  -> Running Voxel Remesh...", end="")
     step_start = time.time()
-    # obj.data.remesh_voxel_size = 0.01
-    # to get low poly object use the size below
-    obj.data.remesh_voxel_size = 0.05
+    obj.data.remesh_voxel_size = voxel_size
     obj.data.use_remesh_fix_poles = True
     obj.data.use_remesh_preserve_volume = True
     bpy.ops.object.voxel_remesh()
