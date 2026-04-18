@@ -1,3 +1,9 @@
+<!-- ========================================================================
+     DIM3 — Data Processing Page
+     Full pipeline visualization for 3D CNN, PointNet, and GNN.
+     ======================================================================== -->
+
+<!-- ── Navbar Tools (swapped via hx-swap-oob) ─────────────────────────── -->
 <div id="navbar-tools" hx-swap-oob="true" class="flex items-center gap-4 h-full"
      x-data="{
         fileName: 'LOAD FILE',
@@ -6,9 +12,17 @@
             { name: 'PointNet (Cloud)', paramName: 'Points', min: 512, max: 16384, step: 512, default: 1024, hasParam: true },
             { name: 'GNN (Graph)', hasParam: false }
         ],
+        samplingMethods: [
+            { name: 'Farthest Point', value: 'fps' },
+            { name: 'Poisson Disk', value: 'poisson' },
+            { name: 'Curvature Based', value: 'curvature' }
+        ],
         modelIndex: 0,
         modelMenuOpen: false,
         isModelScrolling: false,
+        samplingIndex: 0,
+        samplingMenuOpen: false,
+        isSamplingScrolling: false,
         paramVal: 32,
         dragging: false
      }"
@@ -17,21 +31,32 @@
             if(targetModels[val].hasParam) { paramVal = targetModels[val].default; }
             $dispatch('pipeline-changed', { index: val });
         });
+        $watch('samplingIndex', val => {
+            window.dim3.settings.samplingMethod = samplingMethods[val].value;
+            $dispatch('sampling-changed', { method: samplingMethods[val].value });
+        });
+        $watch('paramVal', val => {
+            if(modelIndex === 0) window.dim3.settings.voxelSize = parseInt(val);
+            if(modelIndex === 1) window.dim3.settings.pointCount = parseInt(val);
+        });
      ">
 
+    <!-- File Upload Button -->
     <label class="relative group cursor-pointer flex items-center bg-black/40 border border-[var(--accent-dim)] rounded-lg px-4 py-2 hover:border-[var(--accent)] transition-colors h-[40px]">
         <svg class="w-4 h-4 text-[var(--accent)] mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
         <span class="text-xs text-[var(--accent)] font-bold uppercase tracking-wider whitespace-nowrap" x-text="fileName"></span>
         <input type="file" class="hidden" accept=".obj,.ply,.stl,.glb,.gltf"
                @change="
                    if($event.target.files[0]) {
-                       let name = $event.target.files[0].name;
+                       let file = $event.target.files[0];
+                       let name = file.name;
                        fileName = name.length > 15 ? name.substring(0, 12) + '...' : name.toUpperCase();
-                       $dispatch('file-loaded');
+                       $dispatch('file-selected', { file: file });
                    }
                ">
     </label>
 
+    <!-- Target Model Dropdown -->
     <div class="relative h-[40px] w-max min-w-[180px] rounded-xl bg-[#00000030] border border-[var(--accent-dim)] shadow-inner transition-all duration-300"
          :class="modelMenuOpen ? 'overflow-visible' : 'overflow-hidden'"
          @mouseenter="modelMenuOpen = true" @mouseleave="modelMenuOpen = false"
@@ -41,9 +66,9 @@
             if (next >= 0 && next < targetModels.length) {
                 isModelScrolling = true; modelIndex = next;
                 setTimeout(() => { isModelScrolling = false; }, 300);
+                if(window.dim3Sound) window.dim3Sound.play('tick');
             }
          ">
-
          <div class="absolute top-0 left-0 w-full rounded-xl transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
               :class="modelMenuOpen ? 'bg-[var(--bg-panel)] border border-[var(--accent-dim)] shadow-[0_10px_40px_var(--bg-base)] z-50' : 'border border-transparent'"
               :style="'transform: translateY(calc(-40px * ' + modelIndex + '));'">
@@ -57,6 +82,7 @@
          </div>
     </div>
 
+    <!-- Parameter Slider -->
     <div x-show="targetModels[modelIndex].hasParam" x-transition.opacity.duration.300ms class="flex items-center gap-3 bg-black/40 border border-white/5 rounded-lg px-4 h-[40px]">
         <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest whitespace-nowrap" x-text="targetModels[modelIndex].paramName"></span>
         <div class="relative flex items-center">
@@ -71,85 +97,781 @@
                    @mousedown="dragging = true" @mouseup="dragging = false" @mouseleave="dragging = false" @input="dragging = true">
         </div>
     </div>
+
+    <!-- Sampling Method Dropdown (PointNet only) -->
+    <div x-show="modelIndex === 1" x-transition.opacity.duration.300ms
+         class="relative h-[40px] w-max min-w-[160px] rounded-xl bg-[#00000030] border border-[var(--accent-dim)] shadow-inner transition-all duration-300"
+         :class="samplingMenuOpen ? 'overflow-visible' : 'overflow-hidden'"
+         @mouseenter="samplingMenuOpen = true" @mouseleave="samplingMenuOpen = false"
+         @wheel.prevent="
+            if (!samplingMenuOpen || isSamplingScrolling) return;
+            let next = samplingIndex + ($event.deltaY > 0 ? 1 : -1);
+            if (next >= 0 && next < samplingMethods.length) {
+                isSamplingScrolling = true; samplingIndex = next;
+                setTimeout(() => { isSamplingScrolling = false; }, 300);
+                if(window.dim3Sound) window.dim3Sound.play('tick');
+            }
+         ">
+         <div class="absolute top-0 left-0 w-full rounded-xl transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+              :class="samplingMenuOpen ? 'bg-[var(--bg-panel)] border border-[var(--accent-dim)] shadow-[0_10px_40px_var(--bg-base)] z-50' : 'border border-transparent'"
+              :style="'transform: translateY(calc(-40px * ' + samplingIndex + '));'">
+              <template x-for="(sm, index) in samplingMethods" :key="index">
+                   <div class="h-[40px] flex items-center px-4 cursor-pointer transition-colors duration-300 whitespace-nowrap"
+                        @click="samplingIndex = index; samplingMenuOpen = false"
+                        :class="samplingIndex === index ? 'text-[var(--accent)] [text-shadow:var(--text-glow)] font-bold' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'">
+                       <span x-text="sm.name" class="tracking-wide text-[0.85rem] uppercase"></span>
+                   </div>
+              </template>
+         </div>
+    </div>
 </div>
 
 
+<!-- ── Panel Styles ────────────────────────────────────────────────────── -->
 <style>
     .snap-container { scroll-snap-type: y mandatory; }
     .snap-panel { scroll-snap-align: start; scroll-snap-stop: always; padding-bottom: 2rem; }
+    .panel-box {
+        width: 100%; height: 100%;
+        background: var(--bg-panel);
+        border: 1px solid var(--accent-dim);
+        border-radius: 1.5rem;
+        position: relative;
+        overflow: hidden;
+        transition: border-color 0.7s, background 0.7s;
+    }
+    .panel-viewport { width: 100%; height: 100%; position: absolute; inset: 0; }
+    .panel-loading {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 10;
+    }
+    .panel-loading .spinner {
+        width: 32px; height: 32px;
+        border: 3px solid var(--accent-dim);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 
-<div class="w-full h-full relative" x-data="{ activePipeline: 0, fileLoaded: false }"
-     @pipeline-changed.window="activePipeline = $event.detail.index; if($refs.scrollBox) $refs.scrollBox.scrollTo({top: 0, behavior: 'smooth'})"
-     @file-loaded.window="fileLoaded = true">
 
+<!-- ── Main Content ────────────────────────────────────────────────────── -->
+<div class="w-full h-full relative"
+     x-data="pipelineController()"
+     @pipeline-changed.window="switchPipeline($event.detail.index)"
+     @file-selected.window="handleFileUpload($event.detail.file)"
+     @sampling-changed.window="handleSamplingChange($event.detail.method)">
+
+    <!-- Empty State -->
     <div x-show="!fileLoaded" class="w-full h-full flex">
         <div class="flex-1 w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl p-12 shadow-2xl flex flex-col items-center justify-center relative overflow-hidden transition-all duration-700">
             <div class="absolute inset-0 bg-[var(--accent)] opacity-[0.03] blur-[120px] pointer-events-none"></div>
-
             <h1 class="text-5xl font-black text-[var(--accent)] tracking-tight mb-4 [text-shadow:var(--text-glow)] relative z-10">Data Processing</h1>
             <p class="text-slate-400 font-mono text-sm tracking-widest uppercase relative z-10">Select a model to get started</p>
         </div>
     </div>
 
-    <div x-show="fileLoaded" x-transition.opacity.duration.700ms x-ref="scrollBox" class="w-full h-full snap-container overflow-y-scroll hide-scrollbar" style="display: none;">
+    <!-- Pipeline Panels -->
+    <div x-show="fileLoaded" x-transition.opacity.duration.700ms x-ref="scrollBox"
+         class="w-full h-full snap-container overflow-y-scroll hide-scrollbar"
+         @scroll="onPanelScroll()" style="display: none;">
 
+        <!-- ═══════════════════════════════════════════════════════════════
+             3D CNN PIPELINE
+             ═══════════════════════════════════════════════════════════════ -->
         <div x-show="activePipeline === 0" class="w-full h-full flex flex-col" style="display: none;">
+
+            <!-- CNN Panel 1: Mesh Ingestion -->
             <div class="snap-panel flex-shrink-0 w-full h-full">
-                <div class="w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl relative overflow-hidden flex flex-col items-center justify-center transition-colors duration-700">
-                    <div class="absolute top-8 left-8 bg-black/40 border border-white/5 px-4 py-2 rounded-xl z-20 shadow-lg">
-                        <span class="text-[var(--accent)] font-bold text-[10px] uppercase tracking-widest">Step 01 // Mesh Ingestion</span>
-                    </div>
-                    <h1 class="text-4xl font-black text-[var(--accent)] opacity-10">CNN INGESTION</h1>
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('cnn-ingest', $el); } }">
+                    <div class="panel-viewport" :id="'vp-cnn-ingest'"></div>
+                    <div class="panel-loading" x-show="isLoading('cnn-ingest')"><div class="spinner"></div></div>
                 </div>
             </div>
+
+            <!-- CNN Panel 2: Normalization & Cleanup -->
             <div class="snap-panel flex-shrink-0 w-full h-full">
-                <div class="w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl relative overflow-hidden flex flex-col items-center justify-center transition-colors duration-700">
-                    <div class="absolute top-8 left-8 bg-black/40 border border-white/5 px-4 py-2 rounded-xl z-20 shadow-lg">
-                        <span class="text-[var(--accent)] font-bold text-[10px] uppercase tracking-widest">Step 02 // Voxelization</span>
-                    </div>
-                    <h1 class="text-4xl font-black text-[var(--accent)] opacity-10">CNN VOXELIZATION</h1>
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('cnn-normalize', $el); } }">
+                    <div class="panel-viewport" :id="'vp-cnn-normalize'"></div>
+                    <div class="panel-loading" x-show="isLoading('cnn-normalize')"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- CNN Panel 3: Voxelization -->
+            <div class="snap-panel flex-shrink-0 w-full h-full">
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('cnn-voxelize', $el); } }">
+                    <div class="panel-viewport" :id="'vp-cnn-voxelize'"></div>
+                    <div class="panel-loading" x-show="isLoading('cnn-voxelize')"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- CNN Panel 4: Z-Axis Slices -->
+            <div class="snap-panel flex-shrink-0 w-full h-full">
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('cnn-slices-z', $el); } }">
+                    <div class="panel-viewport" :id="'vp-cnn-slices-z'"></div>
+                    <div class="panel-loading" x-show="isLoading('cnn-slices-z')"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- CNN Panel 5: X-Axis Slices -->
+            <div class="snap-panel flex-shrink-0 w-full h-full">
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('cnn-slices-x', $el); } }">
+                    <div class="panel-viewport" :id="'vp-cnn-slices-x'"></div>
+                    <div class="panel-loading" x-show="isLoading('cnn-slices-x')"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- CNN Panel 6: Y-Axis Slices -->
+            <div class="snap-panel flex-shrink-0 w-full h-full">
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('cnn-slices-y', $el); } }">
+                    <div class="panel-viewport" :id="'vp-cnn-slices-y'"></div>
+                    <div class="panel-loading" x-show="isLoading('cnn-slices-y')"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- CNN Panel 7: Voxel Density Heatmap (extra) -->
+            <div class="snap-panel flex-shrink-0 w-full h-full">
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('cnn-density', $el); } }">
+                    <div class="panel-viewport" :id="'vp-cnn-density'"></div>
+                    <div class="panel-loading" x-show="isLoading('cnn-density')"><div class="spinner"></div></div>
                 </div>
             </div>
         </div>
 
+        <!-- ═══════════════════════════════════════════════════════════════
+             POINTNET PIPELINE
+             ═══════════════════════════════════════════════════════════════ -->
         <div x-show="activePipeline === 1" class="w-full h-full flex flex-col" style="display: none;">
+
+            <!-- PointNet Panel 1: Mesh Ingestion -->
             <div class="snap-panel flex-shrink-0 w-full h-full">
-                <div class="w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl relative overflow-hidden flex flex-col items-center justify-center transition-colors duration-700">
-                    <div class="absolute top-8 left-8 bg-black/40 border border-white/5 px-4 py-2 rounded-xl z-20 shadow-lg">
-                        <span class="text-[var(--accent)] font-bold text-[10px] uppercase tracking-widest">Step 01 // Mesh Ingestion</span>
-                    </div>
-                    <h1 class="text-4xl font-black text-[var(--accent)] opacity-10">POINTNET INGESTION</h1>
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('pc-ingest', $el); } }">
+                    <div class="panel-viewport" :id="'vp-pc-ingest'"></div>
+                    <div class="panel-loading" x-show="isLoading('pc-ingest')"><div class="spinner"></div></div>
                 </div>
             </div>
+
+            <!-- PointNet Panel 2: Normalization -->
             <div class="snap-panel flex-shrink-0 w-full h-full">
-                <div class="w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl relative overflow-hidden flex flex-col items-center justify-center transition-colors duration-700">
-                    <div class="absolute top-8 left-8 bg-black/40 border border-white/5 px-4 py-2 rounded-xl z-20 shadow-lg">
-                        <span class="text-[var(--accent)] font-bold text-[10px] uppercase tracking-widest">Step 02 // Farthest Point Sampling</span>
-                    </div>
-                    <h1 class="text-4xl font-black text-[var(--accent)] opacity-10">FARTHEST POINT SAMPLING</h1>
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('pc-normalize', $el); } }">
+                    <div class="panel-viewport" :id="'vp-pc-normalize'"></div>
+                    <div class="panel-loading" x-show="isLoading('pc-normalize')"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- PointNet Panel 3: Point Cloud -->
+            <div class="snap-panel flex-shrink-0 w-full h-full">
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('pc-cloud', $el); } }">
+                    <div class="panel-viewport" :id="'vp-pc-cloud'"></div>
+                    <div class="panel-loading" x-show="isLoading('pc-cloud')"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- PointNet Panel 4: Axis Projections -->
+            <div class="snap-panel flex-shrink-0 w-full h-full">
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('pc-projections', $el); } }">
+                    <div class="panel-viewport" :id="'vp-pc-projections'"></div>
+                    <div class="panel-loading" x-show="isLoading('pc-projections')"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- PointNet Panel 5: Point Density / Normals (extra) -->
+            <div class="snap-panel flex-shrink-0 w-full h-full">
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('pc-density', $el); } }">
+                    <div class="panel-viewport" :id="'vp-pc-density'"></div>
+                    <div class="panel-loading" x-show="isLoading('pc-density')"><div class="spinner"></div></div>
                 </div>
             </div>
         </div>
 
+        <!-- ═══════════════════════════════════════════════════════════════
+             GNN PIPELINE
+             ═══════════════════════════════════════════════════════════════ -->
         <div x-show="activePipeline === 2" class="w-full h-full flex flex-col" style="display: none;">
+
+            <!-- GNN Panel 1: Mesh Ingestion -->
             <div class="snap-panel flex-shrink-0 w-full h-full">
-                <div class="w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl relative overflow-hidden flex flex-col items-center justify-center transition-colors duration-700">
-                    <div class="absolute top-8 left-8 bg-black/40 border border-white/5 px-4 py-2 rounded-xl z-20 shadow-lg">
-                        <span class="text-[var(--accent)] font-bold text-[10px] uppercase tracking-widest">Step 01 // Mesh Ingestion</span>
-                    </div>
-                    <h1 class="text-4xl font-black text-[var(--accent)] opacity-10">GNN INGESTION</h1>
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('gnn-ingest', $el); } }">
+                    <div class="panel-viewport" :id="'vp-gnn-ingest'"></div>
+                    <div class="panel-loading" x-show="isLoading('gnn-ingest')"><div class="spinner"></div></div>
                 </div>
             </div>
+
+            <!-- GNN Panel 2: Low-Poly Mesh -->
             <div class="snap-panel flex-shrink-0 w-full h-full">
-                <div class="w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl relative overflow-hidden flex flex-col items-center justify-center transition-colors duration-700">
-                    <div class="absolute top-8 left-8 bg-black/40 border border-white/5 px-4 py-2 rounded-xl z-20 shadow-lg">
-                        <span class="text-[var(--accent)] font-bold text-[10px] uppercase tracking-widest">Step 02 // Graph Topology</span>
-                    </div>
-                    <h1 class="text-4xl font-black text-[var(--accent)] opacity-10">GNN TOPOLOGY</h1>
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('gnn-lowpoly', $el); } }">
+                    <div class="panel-viewport" :id="'vp-gnn-lowpoly'"></div>
+                    <div class="panel-loading" x-show="isLoading('gnn-lowpoly')"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- GNN Panel 3: Remove Faces (Wireframe) -->
+            <div class="snap-panel flex-shrink-0 w-full h-full">
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('gnn-wireframe', $el); } }">
+                    <div class="panel-viewport" :id="'vp-gnn-wireframe'"></div>
+                    <div class="panel-loading" x-show="isLoading('gnn-wireframe')"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- GNN Panel 4: Graph Viewer -->
+            <div class="snap-panel flex-shrink-0 w-full h-full">
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('gnn-graph', $el); } }">
+                    <div class="panel-viewport" :id="'vp-gnn-graph'"></div>
+                    <div class="panel-loading" x-show="isLoading('gnn-graph')"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- GNN Panel 5: Node Features (extra) -->
+            <div class="snap-panel flex-shrink-0 w-full h-full">
+                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('gnn-features', $el); } }">
+                    <div class="panel-viewport" :id="'vp-gnn-features'"></div>
+                    <div class="panel-loading" x-show="isLoading('gnn-features')"><div class="spinner"></div></div>
                 </div>
             </div>
         </div>
 
     </div>
 </div>
+
+
+<!-- ── Pipeline Controller (ES Module) ─────────────────────────────────── -->
+<script type="module">
+import { MeshViewport } from '/static/js/components/mesh-viewport.js';
+import { PanelNote } from '/static/js/components/panel-note.js';
+import { LidarScanner } from '/static/js/components/lidar-scanner.js';
+import { VoxelOverlay } from '/static/js/components/voxel-overlay.js';
+import { SliceGridViewer } from '/static/js/components/slice-grid.js';
+import { PointCloudViewer } from '/static/js/components/point-cloud.js';
+import { ProjectionViewer } from '/static/js/components/projection-viewer.js';
+import { GraphViewer } from '/static/js/components/graph-viewer.js';
+import { SoundEngine } from '/static/js/sound-engine.js';
+
+// Panel note definitions
+const PANEL_NOTES = {
+    'cnn-ingest': {
+        title: 'Step 01 // Mesh Ingestion',
+        bullets: [
+            'All sub-meshes merged into a single watertight object',
+            'Format conversion to OBJ for pipeline compatibility',
+            'Original geometry preserved — no modifications yet',
+            'You are viewing the raw imported mesh',
+        ]
+    },
+    'cnn-normalize': {
+        title: 'Step 02 // Normalization & Cleanup',
+        bullets: [
+            'Centered at origin, scaled to fit a 2×2×2 bounding cube',
+            'Degenerate & duplicate faces removed',
+            'Normals recalculated for consistency',
+            'This ensures all models are in a canonical coordinate space',
+        ]
+    },
+    'cnn-voxelize': {
+        title: 'Step 03 // Voxelization',
+        bullets: [
+            'Mesh discretized into a 3D occupancy grid',
+            'Grey cubes mark cells where mesh surface intersects',
+            'Grid resolution matches your Grid Size parameter',
+            'This is the input tensor for the 3D CNN',
+        ]
+    },
+    'cnn-slices-z': {
+        title: 'Step 04 // Z-Axis Slices',
+        bullets: [
+            'Horizontal cross-sections through the voxel grid',
+            'Each tile is one layer from bottom to top',
+            'Gold pixels = filled voxels, black = empty',
+            'Confirms the 3D structure is captured correctly',
+        ]
+    },
+    'cnn-slices-x': {
+        title: 'Step 05 // X-Axis Slices',
+        bullets: [
+            'Sagittal cross-sections through the voxel grid',
+            'Each tile is one slice from left to right',
+            'Complements Z-slices for full spatial verification',
+        ]
+    },
+    'cnn-slices-y': {
+        title: 'Step 06 // Y-Axis Slices',
+        bullets: [
+            'Coronal cross-sections through the voxel grid',
+            'Each tile is one slice from front to back',
+            'All three axis views confirm volumetric integrity',
+        ]
+    },
+    'cnn-density': {
+        title: 'Step 07 // Voxel Occupancy Stats',
+        bullets: [
+            'Summary of the voxelization results',
+            'Shows fill density, grid dimensions, and structure',
+            'Useful for validating grid resolution choice',
+        ]
+    },
+    'pc-ingest': {
+        title: 'Step 01 // Mesh Ingestion',
+        bullets: [
+            'All sub-meshes merged into a single object',
+            'Format conversion to OBJ for pipeline compatibility',
+            'You are viewing the raw imported mesh',
+        ]
+    },
+    'pc-normalize': {
+        title: 'Step 02 // Normalization & Cleanup',
+        bullets: [
+            'Centered at origin, scaled to fit 2×2×2',
+            'Surface cleaned for uniform sampling',
+            'Canonical space ensures consistent point distribution',
+        ]
+    },
+    'pc-cloud': {
+        title: 'Step 03 // Point Cloud',
+        bullets: [], // Dynamically set based on sampling method
+    },
+    'pc-projections': {
+        title: 'Step 04 // Axis Projections',
+        bullets: [
+            'Point cloud projected onto XY, XZ, and YZ planes',
+            'Reveals the shape silhouette from each major viewing angle',
+            'Helps verify spatial coverage of the sampling',
+        ]
+    },
+    'pc-density': {
+        title: 'Step 05 // Spatial Distribution',
+        bullets: [
+            'Point color encodes local density',
+            'Bright = dense region, dim = sparse',
+            'Validates that sampling captures shape uniformly',
+        ]
+    },
+    'gnn-ingest': {
+        title: 'Step 01 // Mesh Ingestion',
+        bullets: [
+            'All sub-meshes merged into a single object',
+            'Format conversion to OBJ for pipeline compatibility',
+            'You are viewing the raw imported mesh',
+        ]
+    },
+    'gnn-lowpoly': {
+        title: 'Step 02 // Low-Poly Decimation',
+        bullets: [
+            'Mesh simplified via quadric decimation',
+            'Reduces vertex count for tractable graph construction',
+            'Key structural features preserved at lower resolution',
+        ]
+    },
+    'gnn-wireframe': {
+        title: 'Step 03 // Face Removal → Edge Graph',
+        bullets: [
+            'All triangular faces removed, only edges remain',
+            'Vertices become graph nodes, edges become graph connections',
+            'This is the raw topology that the GNN will learn from',
+        ]
+    },
+    'gnn-graph': {
+        title: 'Step 04 // Graph Layout',
+        bullets: [
+            'Force-directed 2D layout of the mesh graph',
+            'Node size ∝ degree (number of connections)',
+            'Hover a node to highlight its neighborhood',
+            'Drag nodes or pan/zoom to explore the structure',
+        ]
+    },
+    'gnn-features': {
+        title: 'Step 05 // Graph Statistics',
+        bullets: [
+            'Node and edge count summary',
+            'Edge weight distribution (Euclidean distances)',
+            'Useful for understanding graph complexity',
+        ]
+    },
+};
+
+// Store component instances and data
+const state = {
+    panels: {},
+    loadingPanels: new Set(),
+    processedData: {},
+    firstLoad: true,
+};
+
+// Make panel functions available to Alpine
+window.pipelineController = function() {
+    return {
+        activePipeline: 0,
+        fileLoaded: false,
+        uploadedFile: null,
+
+        switchPipeline(index) {
+            window.dim3.disposeAll();
+            this.activePipeline = index;
+            if (this.$refs.scrollBox) {
+                this.$refs.scrollBox.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+            // Re-process if file is loaded
+            if (this.fileLoaded && this.uploadedFile) {
+                this.$nextTick(() => this.processPipeline());
+            }
+        },
+
+        async handleFileUpload(file) {
+            this.uploadedFile = file;
+            this.fileLoaded = true;
+
+            // Upload to backend
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (data.error) throw new Error(data.error);
+
+                window.dim3.sessionId = data.session_id;
+                window.dim3.filePath = data.path;
+
+                this.$nextTick(() => this.processPipeline());
+            } catch (err) {
+                console.error('Upload failed:', err);
+            }
+        },
+
+        handleSamplingChange(method) {
+            if (this.activePipeline === 1 && this.fileLoaded) {
+                // Re-process point cloud panels with new method
+                this.$nextTick(() => {
+                    this.runStep('pc-cloud');
+                    this.runStep('pc-projections');
+                    this.runStep('pc-density');
+                });
+            }
+        },
+
+        async processPipeline() {
+            window.dim3.disposeAll();
+            state.panels = {};
+
+            const pipeline = this.activePipeline;
+
+            // Step 1: Ingest (shared)
+            await this.runStep(pipeline === 0 ? 'cnn-ingest' : pipeline === 1 ? 'pc-ingest' : 'gnn-ingest');
+
+            // Step 2+: pipeline-specific
+            if (pipeline === 0) {
+                await this.runStep('cnn-normalize');
+                await this.runStep('cnn-voxelize');
+                this.runStep('cnn-slices-z');
+                this.runStep('cnn-slices-x');
+                this.runStep('cnn-slices-y');
+                this.runStep('cnn-density');
+            } else if (pipeline === 1) {
+                await this.runStep('pc-normalize');
+                this.runStep('pc-cloud');
+                this.runStep('pc-projections');
+                this.runStep('pc-density');
+            } else {
+                await this.runStep('gnn-lowpoly');
+                await this.runStep('gnn-wireframe');
+                this.runStep('gnn-graph');
+                this.runStep('gnn-features');
+            }
+        },
+
+        async runStep(panelId) {
+            state.loadingPanels.add(panelId);
+            try {
+                const data = await processStep(panelId);
+                state.processedData[panelId] = data;
+                this.$nextTick(() => renderPanel(panelId, data, state.firstLoad));
+                if (state.firstLoad && panelId.endsWith('-ingest')) {
+                    state.firstLoad = false;
+                }
+            } catch (err) {
+                console.error(`Step ${panelId} failed:`, err);
+            } finally {
+                state.loadingPanels.delete(panelId);
+            }
+        },
+
+        isLoading(panelId) {
+            return state.loadingPanels.has(panelId);
+        },
+
+        initPanel(panelId, el) {
+            // Panels init through processPipeline, this is a no-op placeholder
+        },
+
+        onPanelScroll() {
+            if (window.dim3Sound) SoundEngine.play('swipe');
+        },
+    };
+};
+
+
+// ── Backend Processing ──────────────────────────────────────────────────
+async function processStep(panelId) {
+    const filePath = window.dim3.filePath;
+    const settings = window.dim3.settings;
+
+    const post = async (url, body = {}) => {
+        const formData = new FormData();
+        Object.entries(body).forEach(([k, v]) => formData.append(k, v));
+        const resp = await fetch(url, { method: 'POST', body: formData });
+        return resp.json();
+    };
+
+    switch (panelId) {
+        case 'cnn-ingest':
+        case 'pc-ingest':
+        case 'gnn-ingest':
+            return post('/api/process/ingest', { file_path: filePath });
+
+        case 'cnn-normalize':
+        case 'pc-normalize':
+            return state.processedData['cnn-normalize'] || state.processedData['pc-normalize'] ||
+                   post('/api/process/normalize', { voxel_size: 0.01 });
+
+        case 'cnn-voxelize':
+            return post('/api/process/voxelize', { grid_size: settings.voxelSize });
+
+        case 'cnn-slices-z':
+        case 'cnn-slices-x':
+        case 'cnn-slices-y':
+            // Reuse voxel data
+            return state.processedData['cnn-voxelize'] ||
+                   post('/api/process/voxelize', { grid_size: settings.voxelSize });
+
+        case 'cnn-density':
+            return state.processedData['cnn-voxelize'] ||
+                   post('/api/process/voxelize', { grid_size: settings.voxelSize });
+
+        case 'pc-cloud':
+        case 'pc-projections':
+        case 'pc-density':
+            return post('/api/process/sample', {
+                num_points: settings.pointCount,
+                method: settings.samplingMethod,
+            });
+
+        case 'gnn-lowpoly':
+            return post('/api/process/normalize_low_poly', { voxel_size: 0.05 });
+
+        case 'gnn-wireframe':
+            return post('/api/process/wireframe');
+
+        case 'gnn-graph':
+        case 'gnn-features':
+            return post('/api/process/graph');
+
+        default:
+            return {};
+    }
+}
+
+
+// ── Panel Rendering ─────────────────────────────────────────────────────
+function renderPanel(panelId, data, isFirstLoad = false) {
+    const container = document.getElementById(`vp-${panelId}`);
+    if (!container) return;
+
+    // Clear previous content
+    container.innerHTML = '';
+
+    // Add panel note
+    const noteConfig = PANEL_NOTES[panelId];
+    if (noteConfig) {
+        // Dynamic note for point cloud based on sampling method
+        if (panelId === 'pc-cloud' && data.method_description) {
+            noteConfig.bullets = [
+                data.method_description,
+                `${data.count || '?'} points sampled from the mesh surface`,
+                'Colors encode height for visual depth',
+            ];
+        }
+        new PanelNote(container, noteConfig);
+    }
+
+    // Render based on panel type
+    if (panelId.endsWith('-ingest') || panelId === 'cnn-normalize' || panelId === 'pc-normalize' || panelId === 'gnn-lowpoly') {
+        // 3D Mesh Viewport
+        const vp = new MeshViewport(container, {
+            wireframe: true,
+            wireframeOpacity: 0.06,
+            showGrid: true,
+            autoRotate: true,
+        });
+        window.dim3.registerViewport(vp);
+
+        if (data.obj_url) {
+            vp.loadOBJ(data.obj_url).then(() => {
+                // LIDAR scan on first ingestion load
+                if (isFirstLoad && panelId.endsWith('-ingest')) {
+                    const scanner = new LidarScanner(vp);
+                    scanner.start();
+                    SoundEngine.play('scan');
+                }
+            });
+        }
+    }
+    else if (panelId === 'cnn-voxelize') {
+        // Mesh + Voxel Overlay
+        const vp = new MeshViewport(container, {
+            wireframe: false,
+            materialColor: 0x555555,
+            showGrid: true,
+            autoRotate: true,
+        });
+        window.dim3.registerViewport(vp);
+
+        // Load the base mesh with low opacity
+        if (data.obj_url) {
+            vp.loadOBJ(data.obj_url).then((obj) => {
+                // Make mesh semi-transparent
+                obj.traverse(child => {
+                    if (child.isMesh) {
+                        child.material.transparent = true;
+                        child.material.opacity = 0.2;
+                    }
+                });
+                // Add voxel overlay
+                if (data.matrix) {
+                    const overlay = new VoxelOverlay(vp.getScene());
+                    overlay.build(data);
+                }
+            });
+        }
+    }
+    else if (panelId.startsWith('cnn-slices-')) {
+        const axis = panelId.split('-').pop();
+        if (data.matrix) {
+            const viewer = new SliceGridViewer(container, { axis });
+            viewer.build(data);
+        }
+    }
+    else if (panelId === 'cnn-density') {
+        // Stats panel
+        renderStatsPanel(container, {
+            'Grid Size': `${data.shape?.[0] || '?'}³`,
+            'Filled Voxels': data.filled_count || '?',
+            'Total Voxels': data.total_count || '?',
+            'Fill Density': data.density ? (data.density * 100).toFixed(1) + '%' : '?',
+        });
+    }
+    else if (panelId === 'pc-cloud') {
+        if (data.points) {
+            const viewer = new PointCloudViewer(container);
+            window.dim3.registerViewport(viewer);
+            viewer.loadPoints(data.points);
+        }
+    }
+    else if (panelId === 'pc-projections') {
+        if (data.points) {
+            const viewer = new ProjectionViewer(container);
+            viewer.build(data.points);
+        }
+    }
+    else if (panelId === 'pc-density') {
+        // Point cloud with density coloring (re-render with different settings)
+        if (data.points) {
+            const viewer = new PointCloudViewer(container, {
+                pointSize: 4.0,
+                pointColor: 0x22d3ee,
+            });
+            window.dim3.registerViewport(viewer);
+            viewer.loadPoints(data.points);
+        }
+    }
+    else if (panelId === 'gnn-wireframe') {
+        // Wireframe-only mesh viewport
+        const vp = new MeshViewport(container, {
+            showGrid: true,
+            autoRotate: true,
+        });
+        window.dim3.registerViewport(vp);
+
+        if (data.wireframe_url) {
+            vp.loadOBJ(data.wireframe_url);
+        }
+    }
+    else if (panelId === 'gnn-graph') {
+        if (data.nodes && data.edges) {
+            const viewer = new GraphViewer(container);
+            viewer.build(data);
+        }
+    }
+    else if (panelId === 'gnn-features') {
+        renderStatsPanel(container, {
+            'Nodes (Vertices)': data.node_count || '?',
+            'Edges': data.edge_count || '?',
+            'Avg Degree': data.node_count && data.edge_count ?
+                (2 * data.edge_count / data.node_count).toFixed(1) : '?',
+            'Graph Type': 'Undirected, Weighted',
+        });
+    }
+}
+
+
+// ── Stats Panel Helper ──────────────────────────────────────────────────
+function renderStatsPanel(container, stats) {
+    const wrapper = document.createElement('div');
+    Object.assign(wrapper.style, {
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '60px 40px',
+        boxSizing: 'border-box',
+    });
+
+    const grid = document.createElement('div');
+    Object.assign(grid.style, {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, 1fr)',
+        gap: '24px',
+        maxWidth: '500px',
+        width: '100%',
+    });
+
+    for (const [label, value] of Object.entries(stats)) {
+        const card = document.createElement('div');
+        Object.assign(card.style, {
+            padding: '24px',
+            borderRadius: '16px',
+            background: 'rgba(0,0,0,0.3)',
+            border: '1px solid var(--accent-dim)',
+            textAlign: 'center',
+        });
+
+        const valEl = document.createElement('div');
+        Object.assign(valEl.style, {
+            fontSize: '28px',
+            fontWeight: '900',
+            color: 'var(--accent)',
+            textShadow: 'var(--text-glow)',
+            marginBottom: '8px',
+            fontFamily: 'system-ui, sans-serif',
+        });
+        valEl.textContent = value;
+
+        const labelEl = document.createElement('div');
+        Object.assign(labelEl.style, {
+            fontSize: '10px',
+            fontWeight: '700',
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            color: 'rgba(226, 232, 240, 0.5)',
+        });
+        labelEl.textContent = label;
+
+        card.appendChild(valEl);
+        card.appendChild(labelEl);
+        grid.appendChild(card);
+    }
+
+    wrapper.appendChild(grid);
+    container.appendChild(wrapper);
+}
+</script>

@@ -8,6 +8,16 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
+    <!-- Three.js Import Map -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
     <style>
         :root {
             transition: all 0.7s cubic-bezier(0.25, 1, 0.5, 1);
@@ -16,29 +26,29 @@
         ::-webkit-scrollbar { display: none; }
         * { -ms-overflow-style: none; scrollbar-width: none; }
 
-        /* Mode 0: Data Processing (Pumpkin Amber) */
+        /* Mode 0: Data Processing (Warm Amber / Gold) */
         body.theme-0 {
-            --bg-base: #1c140d; /* Deep, crushed orange-brown */
-            --bg-panel: #261b12; /* Slightly elevated panel */
-            --accent: #f97316; /* Matte Pumpkin */
-            --accent-dim: rgba(249, 115, 22, 0.15);
-            --text-glow: 0 0 15px rgba(249, 115, 22, 0.25);
+            --bg-base: #171207;
+            --bg-panel: #211a0d;
+            --accent: #d4a017;
+            --accent-dim: rgba(212, 160, 23, 0.14);
+            --text-glow: 0 0 15px rgba(212, 160, 23, 0.28);
         }
 
         /* Mode 1: Model Training (Crimson Red) */
         body.theme-1 {
-            --bg-base: #1a1012; /* Deep, crushed crimson-shadow */
+            --bg-base: #1a1012;
             --bg-panel: #251619;
-            --accent: #f43f5e; /* Matte Crimson */
+            --accent: #f43f5e;
             --accent-dim: rgba(244, 63, 94, 0.15);
             --text-glow: 0 0 15px rgba(244, 63, 94, 0.25);
         }
 
         /* Mode 2: Model Evaluation (Matte Sage) */
         body.theme-2 {
-            --bg-base: #0f1813; /* Deep, crushed forest shadow */
+            --bg-base: #0f1813;
             --bg-panel: #15221b;
-            --accent: #10b981; /* Matte Sage */
+            --accent: #10b981;
             --accent-dim: rgba(16, 185, 129, 0.15);
             --text-glow: 0 0 15px rgba(16, 185, 129, 0.25);
         }
@@ -93,7 +103,32 @@
         <div hx-get="/pages/data_processing" hx-trigger="load" class="w-full h-full flex"></div>
     </main>
 
+    <!-- Sound Engine (loaded as module, auto-inits on first interaction) -->
+    <script type="module">
+        import { SoundEngine } from '/static/js/sound-engine.js';
+        window.dim3Sound = SoundEngine;
+    </script>
+
     <script>
+        // Global state for cross-panel data sharing
+        window.dim3 = {
+            sessionId: null,
+            filePath: null,
+            processedData: {},
+            settings: {
+                samplingMethod: 'fps',
+                voxelSize: 32,
+                pointCount: 1024,
+            },
+            // Track active Three.js instances for cleanup
+            activeViewports: [],
+            registerViewport(vp) { this.activeViewports.push(vp); },
+            disposeAll() {
+                this.activeViewports.forEach(vp => { try { vp.dispose(); } catch(e) {} });
+                this.activeViewports = [];
+            },
+        };
+
         function workflowState() {
             return {
                 open: false,
@@ -119,12 +154,18 @@
                         this.isScrolling = true;
                         this.selectMode(newIndex);
                         setTimeout(() => { this.isScrolling = false; }, 400);
+                        // Sound: dropdown tick
+                        if (window.dim3Sound) window.dim3Sound.play('tick');
                     }
                 },
                 selectMode(index) {
                     if (this.activeIndex === index) return;
+                    // Dispose all 3D viewports before swap
+                    window.dim3.disposeAll();
                     this.activeIndex = index;
                     htmx.ajax('GET', this.modes[index].endpoint, {target: '#main-content', swap: 'innerHTML'});
+                    // Sound: page switch
+                    if (window.dim3Sound) window.dim3Sound.play('switch');
                 }
             }
         }
