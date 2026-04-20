@@ -70,6 +70,44 @@ The project is structured as **five progressive model iterations**, each buildin
 
 ---
 
+## Running the Web Interface
+
+### Setting Up the Environment
+
+1. **Create the virtual environment:**
+   ```bash
+   python -m venv venv
+   ```
+
+2. **Activate the virtual environment:**
+   * **Windows:**
+       ```cmd
+       venv\Scripts\activate
+       ```
+   * **Linux / macOS:**
+       ```bash
+       source venv/bin/activate
+       ```
+
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Launching the Application
+
+4. **Navigate to the project directory:**
+   ```bash
+   cd web_interface/dim3_engine
+   ```
+
+5. **Start the server:**
+   ```bash
+   uvicorn main:app --reload
+   ```
+
+---
+
 ## Contributing
 
 This is a university course project. External contributions are not expected, but feel free to open an issue if you spot something.
