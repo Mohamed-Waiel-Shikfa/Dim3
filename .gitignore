@@ -230,3 +230,5 @@ __marimo__/
 !data/fruit/*
 !data/fruit_objs/*
 !data/fruit_remeshed/*
+
+.DS_Store
