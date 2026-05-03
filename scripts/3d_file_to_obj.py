@@ -93,6 +93,17 @@ def export_obj(output_path):
         export_uv=False
     )
 
+def process_single_file(filepath, output_path):
+    print(f"--- Processing single file: {filepath} ---")
+    clear_scene()
+    if not import_file(filepath):
+        return False
+    if not join_all_meshes():
+        return False
+    export_obj(output_path)
+    print(f"Successfully unified and exported to: {output_path}")
+    return True
+
 def process_directory(input_dir, output_dir):
     print(f"Starting conversion from {input_dir} to {output_dir}...")
 
@@ -127,9 +138,17 @@ if __name__ == "__main__":
     args = argv[argv.index("--") + 1:]
 
     parser = argparse.ArgumentParser(description="Unify and convert 3D files to OBJ.")
-    parser.add_argument("--input", required=True, help="Input directory containing raw 3D files.")
-    parser.add_argument("--output", required=True, help="Output directory for unified OBJ files.")
+    parser.add_argument("--input", required=False, help="Input directory containing raw 3D files.")
+    parser.add_argument("--input_file", required=False, help="Single input file.")
+    parser.add_argument("--output", required=False, help="Output directory for unified OBJ files.")
+    parser.add_argument("--output_file", required=False, help="Single output file.")
 
     parsed_args = parser.parse_args(args)
 
-    process_directory(parsed_args.input, parsed_args.output)
+    if parsed_args.input_file and parsed_args.output_file:
+        process_single_file(parsed_args.input_file, parsed_args.output_file)
+    elif parsed_args.input and parsed_args.output:
+        process_directory(parsed_args.input, parsed_args.output)
+    else:
+        print("Provide either --input_file/--output_file OR --input/--output")
+        sys.exit(1)

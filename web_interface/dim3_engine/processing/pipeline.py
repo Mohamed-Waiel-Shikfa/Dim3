@@ -36,30 +36,30 @@ class ProcessingPipeline:
 
     # ── Step 1: Ingest ──────────────────────────────────────────────────────
     def ingest(self, file_path: str) -> dict:
-        """Load a 3D file, merge all meshes, export as OBJ."""
+        import subprocess
         sd = self._get_session_dir()
+        
+        orig_name = Path(file_path).stem.split("_", 1)[-1]
+        cleaned_obj = sd / f"{orig_name}_cleaned.obj"
+        high_poly_obj = sd / f"{orig_name}_remesh_high.obj"
+        low_poly_obj = sd / f"{orig_name}_remesh_low.obj"
+        
+        BLENDER_CMD = ["/Applications/Blender.app/Contents/MacOS/Blender", "--background", "--python"]
+        S_ROOT = "/Users/moha_alku/15-288 Project/Dim3/scripts"
+        
+        print("Running 3d_file_to_obj...")
+        subprocess.run(BLENDER_CMD + [f"{S_ROOT}/3d_file_to_obj.py", "--", "--input_file", str(file_path), "--output_file", str(cleaned_obj)], check=True)
+        
+        print("Running mesh_cleanup HIGH...")
+        subprocess.run(BLENDER_CMD + [f"{S_ROOT}/mesh_cleanup.py", "--", "--input_file", str(cleaned_obj), "--output_file", str(high_poly_obj), "--voxel_size", "0.01"], check=True)
 
-        scene_or_mesh = trimesh.load(file_path, force=None)
-
-        if isinstance(scene_or_mesh, trimesh.Scene):
-            meshes = [g for g in scene_or_mesh.geometry.values()
-                      if isinstance(g, trimesh.Trimesh)]
-            if not meshes:
-                raise ValueError("No mesh geometry found in file")
-            mesh = trimesh.util.concatenate(meshes)
-        elif isinstance(scene_or_mesh, trimesh.Trimesh):
-            mesh = scene_or_mesh
-        else:
-            raise ValueError(f"Unsupported geometry type: {type(scene_or_mesh)}")
-
-        out_path = sd / "ingested.obj"
-        mesh.export(str(out_path), file_type='obj')
-
+        print("Running mesh_cleanup LOW...")
+        subprocess.run(BLENDER_CMD + [f"{S_ROOT}/mesh_cleanup.py", "--", "--input_file", str(cleaned_obj), "--output_file", str(low_poly_obj), "--voxel_size", "0.05"], check=True)
+        
         return {
-            "obj_url": f"/data/{self.session_id}/ingested.obj",
-            "vertices": len(mesh.vertices),
-            "faces": len(mesh.faces),
-            "bounds": mesh.bounds.tolist(),
+            "obj_url": f"/data/{self.session_id}/{orig_name}_cleaned.obj",
+            "high_poly_url": f"/data/{self.session_id}/{orig_name}_remesh_high.obj",
+            "low_poly_url": f"/data/{self.session_id}/{orig_name}_remesh_low.obj"
         }
 
     # ── Step 2: Normalize ───────────────────────────────────────────────────
@@ -198,9 +198,11 @@ class ProcessingPipeline:
 
     # ── Step 5: Extract Graph (GNN) ─────────────────────────────────────────
     def extract_graph(self) -> dict:
-        """Extract graph topology from normalized mesh (low-poly version)."""
+        """Extract graph topology from the low-poly mesh."""
         sd = self._get_session_dir()
-        in_path = sd / "normalized.obj"
+        in_path = sd / "low_poly.obj"
+        if not in_path.exists():
+            in_path = sd / "normalized.obj"
 
         mesh = trimesh.load(str(in_path), force='mesh')
 

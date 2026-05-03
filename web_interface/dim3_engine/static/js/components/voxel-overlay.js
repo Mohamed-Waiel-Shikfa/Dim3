@@ -1,6 +1,6 @@
 // ============================================================================
 // DIM3 — VoxelOverlay Component
-// Renders transparent instanced cubes over a mesh to show voxel occupancy.
+// Renders the full voxel grid (orange edges) with filled cells in transparent blue.
 // ============================================================================
 import * as THREE from 'three';
 
@@ -8,114 +8,99 @@ export class VoxelOverlay {
     constructor(scene, config = {}) {
         this.scene = scene;
         this.config = {
-            color: config.color ?? 0x888888,
-            opacity: config.opacity ?? 0.25,
-            edgeColor: config.edgeColor ?? 0xd4a017,
-            edgeOpacity: config.edgeOpacity ?? 0.12,
+            filledColor: config.filledColor ?? 0x3a9bdc,
+            filledOpacity: config.filledOpacity ?? 0.35,
+            gridColor: config.gridColor ?? 0xd4a017,
+            gridOpacity: config.gridOpacity ?? 0.55,
             ...config,
         };
-        this.instancedMesh = null;
-        this.edgeMesh = null;
+        this.objects = [];
     }
 
-    /**
-     * Build voxel overlay from occupancy data.
-     * @param {Object} voxelData - { matrix: 3D bool array flattened, shape: [x,y,z], origin: [x,y,z], pitch: number }
-     */
     build(voxelData) {
         this.dispose();
-
         const { matrix, shape, origin, pitch } = voxelData;
         const [sx, sy, sz] = shape;
         const [ox, oy, oz] = origin;
 
-        // Count occupied voxels
-        let count = 0;
-        for (let i = 0; i < matrix.length; i++) {
-            if (matrix[i]) count++;
-        }
+        // --- Filled voxels: transparent blue instanced mesh ---
+        let filledCount = 0;
+        for (let i = 0; i < matrix.length; i++) if (matrix[i]) filledCount++;
 
-        if (count === 0) return;
-
-        // Create instanced mesh for occupied cubes
-        const cubeGeo = new THREE.BoxGeometry(pitch * 0.95, pitch * 0.95, pitch * 0.95);
-        const cubeMat = new THREE.MeshStandardMaterial({
-            color: this.config.color,
-            transparent: true,
-            opacity: this.config.opacity,
-            roughness: 0.8,
-            metalness: 0.0,
-            side: THREE.FrontSide,
-            depthWrite: false,
-        });
-
-        this.instancedMesh = new THREE.InstancedMesh(cubeGeo, cubeMat, count);
-        this.instancedMesh.renderOrder = 1;
-
-        // Create edge lines for each voxel
-        const edgeGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(pitch * 0.95, pitch * 0.95, pitch * 0.95));
-        const edgeMat = new THREE.LineBasicMaterial({
-            color: this.config.edgeColor,
-            transparent: true,
-            opacity: this.config.edgeOpacity,
-        });
-
-        const dummy = new THREE.Object3D();
-        let idx = 0;
-
-        const edgesGroup = new THREE.Group();
-
-        for (let x = 0; x < sx; x++) {
-            for (let y = 0; y < sy; y++) {
-                for (let z = 0; z < sz; z++) {
-                    const flatIdx = x * sy * sz + y * sz + z;
-                    if (matrix[flatIdx]) {
-                        const px = ox + (x + 0.5) * pitch;
-                        const py = oy + (y + 0.5) * pitch;
-                        const pz = oz + (z + 0.5) * pitch;
-
-                        dummy.position.set(px, py, pz);
-                        dummy.updateMatrix();
-                        this.instancedMesh.setMatrix(idx, dummy.matrix);
-                        idx++;
-
-                        // Add edge lines (only for a subset to keep perf)
-                        if (count < 5000 || Math.random() < 5000 / count) {
-                            const edgeLine = new THREE.LineSegments(edgeGeo, edgeMat);
-                            edgeLine.position.set(px, py, pz);
-                            edgesGroup.add(edgeLine);
+        if (filledCount > 0) {
+            const cubeGeo = new THREE.BoxGeometry(pitch * 0.98, pitch * 0.98, pitch * 0.98);
+            const cubeMat = new THREE.MeshStandardMaterial({
+                color: this.config.filledColor,
+                transparent: true,
+                opacity: this.config.filledOpacity,
+                depthWrite: false,
+                side: THREE.DoubleSide,
+            });
+            const instMesh = new THREE.InstancedMesh(cubeGeo, cubeMat, filledCount);
+            instMesh.renderOrder = 2;
+            const dummy = new THREE.Object3D();
+            let idx = 0;
+            for (let x = 0; x < sx; x++) {
+                for (let y = 0; y < sy; y++) {
+                    for (let z = 0; z < sz; z++) {
+                        if (matrix[x * sy * sz + y * sz + z]) {
+                            dummy.position.set(ox + (x + 0.5) * pitch, oy + (y + 0.5) * pitch, oz + (z + 0.5) * pitch);
+                            dummy.updateMatrix();
+                            instMesh.setMatrix(idx++, dummy.matrix);
                         }
                     }
                 }
             }
+            instMesh.instanceMatrix.needsUpdate = true;
+            this.scene.add(instMesh);
+            this.objects.push(instMesh);
         }
 
-        this.instancedMesh.instanceMatrix.needsUpdate = true;
-        this.scene.add(this.instancedMesh);
+        // --- Full grid: orange edge lines for EVERY cell ---
+        const edgeGeo = new THREE.BoxGeometry(pitch, pitch, pitch);
+        const edgesTemplate = new THREE.EdgesGeometry(edgeGeo);
+        const edgeMat = new THREE.LineBasicMaterial({
+            color: this.config.gridColor,
+            transparent: true,
+            opacity: this.config.gridOpacity,
+        });
 
-        this.edgeMesh = edgesGroup;
-        this.scene.add(this.edgeMesh);
-    }
+        // Merge all grid edges into one BufferGeometry for performance
+        const allPositions = [];
+        const posAttr = edgesTemplate.attributes.position;
+        for (let x = 0; x < sx; x++) {
+            for (let y = 0; y < sy; y++) {
+                for (let z = 0; z < sz; z++) {
+                    const cx = ox + (x + 0.5) * pitch;
+                    const cy = oy + (y + 0.5) * pitch;
+                    const cz = oz + (z + 0.5) * pitch;
+                    for (let i = 0; i < posAttr.count; i++) {
+                        allPositions.push(
+                            posAttr.getX(i) + cx,
+                            posAttr.getY(i) + cy,
+                            posAttr.getZ(i) + cz
+                        );
+                    }
+                }
+            }
+        }
+        const mergedGeo = new THREE.BufferGeometry();
+        mergedGeo.setAttribute('position', new THREE.Float32BufferAttribute(allPositions, 3));
+        const gridLines = new THREE.LineSegments(mergedGeo, edgeMat);
+        gridLines.renderOrder = 3;
+        this.scene.add(gridLines);
+        this.objects.push(gridLines);
 
-    setVisible(visible) {
-        if (this.instancedMesh) this.instancedMesh.visible = visible;
-        if (this.edgeMesh) this.edgeMesh.visible = visible;
+        edgesTemplate.dispose();
+        edgeGeo.dispose();
     }
 
     dispose() {
-        if (this.instancedMesh) {
-            this.scene.remove(this.instancedMesh);
-            this.instancedMesh.geometry.dispose();
-            this.instancedMesh.material.dispose();
-            this.instancedMesh = null;
+        for (const obj of this.objects) {
+            this.scene.remove(obj);
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
         }
-        if (this.edgeMesh) {
-            this.scene.remove(this.edgeMesh);
-            this.edgeMesh.traverse(child => {
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) child.material.dispose();
-            });
-            this.edgeMesh = null;
-        }
+        this.objects = [];
     }
 }

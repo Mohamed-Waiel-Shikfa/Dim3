@@ -38,6 +38,7 @@
         $watch('paramVal', val => {
             if(modelIndex === 0) window.dim3.settings.voxelSize = parseInt(val);
             if(modelIndex === 1) window.dim3.settings.pointCount = parseInt(val);
+            $dispatch('param-changed', { modelIndex, val: parseInt(val) });
         });
      ">
 
@@ -162,6 +163,7 @@
      x-data="pipelineController()"
      @pipeline-changed.window="switchPipeline($event.detail.index)"
      @file-selected.window="handleFileUpload($event.detail.file)"
+     @param-changed.window="handleParamChange($event.detail)"
      @sampling-changed.window="handleSamplingChange($event.detail.method)">
 
     <!-- Empty State -->
@@ -341,13 +343,15 @@
 import { MeshViewport } from '/static/js/components/mesh-viewport.js';
 import { PanelNote } from '/static/js/components/panel-note.js';
 import { LidarScanner } from '/static/js/components/lidar-scanner.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { VoxelOverlay } from '/static/js/components/voxel-overlay.js';
 import { SliceGridViewer } from '/static/js/components/slice-grid.js';
 import { PointCloudViewer } from '/static/js/components/point-cloud.js';
 import { ProjectionViewer } from '/static/js/components/projection-viewer.js';
 import { GraphViewer } from '/static/js/components/graph-viewer.js';
-import { SoundEngine } from '/static/js/sound-engine.js';
 
+import { SoundEngine } from '/static/js/sound-engine.js';
+import { computeVoxelization, samplePointCloud, extractGraph } from '/static/js/geometry_utils.js';
 // Panel note definitions
 const PANEL_NOTES = {
     'cnn-ingest': {
@@ -549,9 +553,35 @@ window.pipelineController = function() {
             }
         },
 
+        handleParamChange({ modelIndex, val }) {
+            if (!this.fileLoaded) return;
+            // Clear cached voxel/pc data so recompute happens
+            if (modelIndex === 0) {
+                // CNN: grid size changed — bust vox cache, re-render all voxel panels
+                Object.keys(state.processedData).forEach(k => { if (k.startsWith('vox-')) delete state.processedData[k]; });
+                this.$nextTick(() => {
+                    this.runStep('cnn-voxelize');
+                    this.runStep('cnn-slices-z');
+                    this.runStep('cnn-slices-x');
+                    this.runStep('cnn-slices-y');
+                    this.runStep('cnn-density');
+                });
+            } else if (modelIndex === 1) {
+                // PointNet: point count changed — bust pc cache, re-render cloud panels
+                Object.keys(state.processedData).forEach(k => { if (k.startsWith('pc-')) delete state.processedData[k]; });
+                this.$nextTick(() => {
+                    this.runStep('pc-cloud');
+                    this.runStep('pc-projections');
+                    this.runStep('pc-density');
+                });
+            }
+        },
+
         async processPipeline() {
             window.dim3.disposeAll();
             state.panels = {};
+            state.processedData = {};
+            state.firstLoad = true;
 
             const pipeline = this.activePipeline;
 
@@ -604,13 +634,16 @@ window.pipelineController = function() {
         },
 
         onPanelScroll() {
-            if (window.dim3Sound) SoundEngine.play('swipe');
+            if (!this._scrollSoundTimer) {
+                if (window.dim3Sound)                this._scrollSoundTimer = setTimeout(() => { this._scrollSoundTimer = null; }, 600);
+            }
         },
     };
 };
 
 
 // ── Backend Processing ──────────────────────────────────────────────────
+
 async function processStep(panelId) {
     const filePath = window.dim3.filePath;
     const settings = window.dim3.settings;
@@ -622,53 +655,90 @@ async function processStep(panelId) {
         return resp.json();
     };
 
+    // Resolve ingest data from whichever pipeline tab fired first
+    let ingestData = state.processedData['cnn-ingest'] ||
+                     state.processedData['pc-ingest']  ||
+                     state.processedData['gnn-ingest'];
+
+    // If we haven't ingested yet, do it now
+    if (!ingestData && panelId.endsWith('-ingest')) {
+        const d = await post('/api/process/ingest', { file_path: filePath });
+        state.processedData[panelId] = d;
+        return d;
+    }
+
+    if (!ingestData) return {}; // Still no ingest data
+
+    if (panelId.endsWith('-ingest')) {
+        return ingestData;
+    }
+
+    if (panelId === 'cnn-normalize' || panelId === 'pc-normalize') {
+        return { obj_url: ingestData.high_poly_url };
+    }
+    if (panelId === 'gnn-lowpoly') {
+        return { obj_url: ingestData.low_poly_url };
+    }
+
+    // Dynamic processing
+    let sourceUrl = panelId.startsWith('gnn-') ? ingestData.low_poly_url : (ingestData.high_poly_url || ingestData.obj_url);
+    
+    // Check if we already cached the THREE.Mesh object
+    let meshObj = state.cachedMeshes && state.cachedMeshes[sourceUrl];
+    if (!meshObj) {
+        const loader = new OBJLoader();
+        try {
+            const grp = await new Promise((resolve, reject) => loader.load(sourceUrl, resolve, undefined, reject));
+            grp.traverse(child => { if (child.isMesh && !meshObj) meshObj = child; });
+            if (!state.cachedMeshes) state.cachedMeshes = {};
+            state.cachedMeshes[sourceUrl] = meshObj;
+        } catch (e) {
+            console.error("Local load failed", e);
+        }
+    }
+
+    if (!meshObj) return {};
+
     switch (panelId) {
-        case 'cnn-ingest':
-        case 'pc-ingest':
-        case 'gnn-ingest':
-            return post('/api/process/ingest', { file_path: filePath });
-
-        case 'cnn-normalize':
-        case 'pc-normalize':
-            return state.processedData['cnn-normalize'] || state.processedData['pc-normalize'] ||
-                   post('/api/process/normalize', { voxel_size: 0.01 });
-
         case 'cnn-voxelize':
-            return post('/api/process/voxelize', { grid_size: settings.voxelSize });
-
-        case 'cnn-slices-z':
         case 'cnn-slices-x':
         case 'cnn-slices-y':
-            // Reuse voxel data
-            return state.processedData['cnn-voxelize'] ||
-                   post('/api/process/voxelize', { grid_size: settings.voxelSize });
-
+        case 'cnn-slices-z':
         case 'cnn-density':
-            return state.processedData['cnn-voxelize'] ||
-                   post('/api/process/voxelize', { grid_size: settings.voxelSize });
+            let voxKey = `vox-${settings.voxelSize}`;
+            if (!state.processedData[voxKey]) {
+                state.processedData[voxKey] = computeVoxelization(meshObj, settings.voxelSize || 32);
+                state.processedData[voxKey].obj_url = sourceUrl;
+            }
+            return state.processedData[voxKey];
 
         case 'pc-cloud':
         case 'pc-projections':
         case 'pc-density':
-            return post('/api/process/sample', {
-                num_points: settings.pointCount,
-                method: settings.samplingMethod,
-            });
-
-        case 'gnn-lowpoly':
-            return post('/api/process/normalize_low_poly', { voxel_size: 0.05 });
+            let pcKey = `pc-${settings.pointCount}-${settings.samplingMethod}`;
+            if (!state.processedData[pcKey]) {
+                state.processedData[pcKey] = samplePointCloud(meshObj, settings.pointCount || 1024, settings.samplingMethod || 'fps');
+                state.processedData[pcKey].obj_url = sourceUrl;
+            }
+            return state.processedData[pcKey];
 
         case 'gnn-wireframe':
-            return post('/api/process/wireframe');
+            return { wireframe_url: sourceUrl };
 
         case 'gnn-graph':
         case 'gnn-features':
-            return post('/api/process/graph');
+            if (!state.processedData['graph']) {
+                state.processedData['graph'] = extractGraph(meshObj);
+                state.processedData['graph'].obj_url = sourceUrl;
+            }
+            return state.processedData['graph'];
 
         default:
             return {};
     }
 }
+
+
 
 
 // ── Panel Rendering ─────────────────────────────────────────────────────
@@ -700,18 +770,12 @@ function renderPanel(panelId, data, isFirstLoad = false) {
             wireframe: true,
             wireframeOpacity: 0.06,
             showGrid: true,
-            autoRotate: true,
+            autoRotate: false,
         });
         window.dim3.registerViewport(vp);
 
         if (data.obj_url) {
             vp.loadOBJ(data.obj_url).then(() => {
-                // LIDAR scan on first ingestion load
-                if (isFirstLoad && panelId.endsWith('-ingest')) {
-                    const scanner = new LidarScanner(vp);
-                    scanner.start();
-                    SoundEngine.play('scan');
-                }
             });
         }
     }
@@ -721,24 +785,38 @@ function renderPanel(panelId, data, isFirstLoad = false) {
             wireframe: false,
             materialColor: 0x555555,
             showGrid: true,
-            autoRotate: true,
+            autoRotate: false,
         });
         window.dim3.registerViewport(vp);
 
         // Load the base mesh with low opacity
         if (data.obj_url) {
             vp.loadOBJ(data.obj_url).then((obj) => {
-                // Make mesh semi-transparent
+                // Make mesh very transparent so the voxel grid is the hero
                 obj.traverse(child => {
                     if (child.isMesh) {
                         child.material.transparent = true;
-                        child.material.opacity = 0.2;
+                        child.material.opacity = 0.15;
+                        child.material.depthWrite = false;
                     }
                 });
-                // Add voxel overlay
-                if (data.matrix) {
-                    const overlay = new VoxelOverlay(vp.getScene());
-                    overlay.build(data);
+
+                // Recompute voxelization on the SCENE-PLACED mesh (after _fitToView applied transform)
+                // This is critical: the overlay geometry bakes absolute coords, so they must
+                // match the mesh's current world-space position/scale, not the raw local space.
+                let sceneMesh = null;
+                obj.traverse(c => { if (c.isMesh && !sceneMesh) sceneMesh = c; });
+                if (sceneMesh) {
+                    const gridSize = window.dim3.settings.voxelSize || 32;
+                    const voxData = computeVoxelization(sceneMesh, gridSize);
+                    const overlay = new VoxelOverlay(vp.getScene(), {
+                        filledColor: 0x3a9bdc,
+                        filledOpacity: 0.45,
+                        gridColor: 0xd4a017,
+                        gridOpacity: 0.70,
+                    });
+                    overlay.build(voxData);
+                    // overlay is added directly to the scene root — coords match sceneMesh world space
                 }
             });
         }
@@ -787,7 +865,7 @@ function renderPanel(panelId, data, isFirstLoad = false) {
         // Wireframe-only mesh viewport
         const vp = new MeshViewport(container, {
             showGrid: true,
-            autoRotate: true,
+            autoRotate: false,
         });
         window.dim3.registerViewport(vp);
 

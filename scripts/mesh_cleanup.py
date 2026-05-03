@@ -161,8 +161,10 @@ if __name__ == "__main__":
 
     args = argv[argv.index("--") + 1:]
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True, help="Input directory")
-    parser.add_argument("--output", required=True, help="Output directory")
+    parser.add_argument("--input", required=False, help="Input directory")
+    parser.add_argument("--input_file", required=False, help="Single input file")
+    parser.add_argument("--output", required=False, help="Output directory")
+    parser.add_argument("--output_file", required=False, help="Single output file")
     parser.add_argument(
         "--voxel_size",
         type=float,
@@ -171,8 +173,14 @@ if __name__ == "__main__":
     )
     parsed_args = parser.parse_args(args)
 
-    for filename in os.listdir(parsed_args.input):
-        if filename.endswith(".obj"):
-            in_path = os.path.join(parsed_args.input, filename)
-            out_path = os.path.join(parsed_args.output, filename)
-            process_mesh(in_path, out_path, voxel_size)
+    if parsed_args.input_file and parsed_args.output_file:
+        process_mesh(parsed_args.input_file, parsed_args.output_file, parsed_args.voxel_size)
+    elif parsed_args.input and parsed_args.output:
+        for filename in os.listdir(parsed_args.input):
+            if filename.endswith(".obj"):
+                in_path = os.path.join(parsed_args.input, filename)
+                out_path = os.path.join(parsed_args.output, filename)
+                process_mesh(in_path, out_path, parsed_args.voxel_size)
+    else:
+        print("Provide either --input/--output or --input_file/--output_file")
+        sys.exit(1)

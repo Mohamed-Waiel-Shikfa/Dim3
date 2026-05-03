@@ -164,11 +164,18 @@ export class MeshViewport {
             metalness: 0.05,
             side: THREE.DoubleSide,
         });
+        const lineMat = new THREE.LineBasicMaterial({
+            color: this.config.accentColor,
+            transparent: true,
+            opacity: 0.75,
+        });
         obj.traverse((child) => {
             if (child.isMesh) {
                 child.material = mat;
                 child.castShadow = true;
                 child.receiveShadow = true;
+            } else if (child.isLine) {
+                child.material = lineMat;
             }
         });
     }
@@ -215,8 +222,8 @@ export class MeshViewport {
         box.getCenter(center);
         obj.position.sub(center);
 
-        const dist = maxDim * 2;
-        this.camera.position.set(dist, dist * 0.7, dist);
+        // After scaling, the model is always 2.5 units — use a fixed readable distance
+        this.camera.position.set(4, 3, 4);
         this.camera.lookAt(0, 0, 0);
         this.controls.target.set(0, 0, 0);
         this.controls.update();
@@ -237,6 +244,8 @@ export class MeshViewport {
             });
             this.model = null;
         }
+        // Dispose any extra scene objects (line segments, points) that were added externally
+        // Those are tracked via the scene; caller is responsible for removing references.
         if (this.wireframeOverlay) {
             this.scene.remove(this.wireframeOverlay);
             this.wireframeOverlay = null;
