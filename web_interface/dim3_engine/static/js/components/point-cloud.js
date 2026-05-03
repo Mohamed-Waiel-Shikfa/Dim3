@@ -9,7 +9,7 @@ export class PointCloudViewer {
     constructor(container, config = {}) {
         this.container = container;
         this.config = {
-            pointSize: config.pointSize ?? 3.0,
+            pointSize: config.pointSize ?? 2,
             pointColor: config.pointColor ?? 0xd4a017,
             backgroundColor: config.backgroundColor ?? null,
             accentColor: config.accentColor ?? 0xd4a017,
@@ -103,12 +103,24 @@ export class PointCloudViewer {
         }
         geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
+        const diskCanvas = document.createElement('canvas');
+        diskCanvas.width = 32; diskCanvas.height = 32;
+        const dc = diskCanvas.getContext('2d');
+        dc.clearRect(0, 0, 32, 32);
+        dc.fillStyle = 'white';
+        dc.beginPath();
+        dc.arc(16, 16, 14, 0, Math.PI * 2);
+        dc.fill();
+        const diskTexture = new THREE.CanvasTexture(diskCanvas);
+
         const mat = new THREE.PointsMaterial({
             size: this.config.pointSize,
             vertexColors: true,
-            sizeAttenuation: true,
+            sizeAttenuation: false,
             transparent: true,
             opacity: 0.9,
+            map: diskTexture,
+            alphaTest: 0.5,
         });
 
         this.points = new THREE.Points(geo, mat);

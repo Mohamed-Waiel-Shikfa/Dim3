@@ -11,8 +11,8 @@ export class GraphViewer {
             edgeColor: config.edgeColor ?? 'rgba(212,160,23,0.15)',
             highlightColor: config.highlightColor ?? '#fff',
             bgColor: config.bgColor ?? 'transparent',
-            maxNodes: config.maxNodes ?? 2000,
-            maxEdges: config.maxEdges ?? 6000,
+            maxNodes: config.maxNodes ?? 400,
+            maxEdges: config.maxEdges ?? 1200,
             ...config,
         };
         this.canvas = null;
@@ -71,8 +71,8 @@ export class GraphViewer {
 
         this.nodes = rawNodes.map((pos, i) => ({
             id: i,
-            x: pos[0] * 100 + (Math.random() - 0.5) * 10,
-            y: pos[1] * 100 + (Math.random() - 0.5) * 10,
+            x: (Math.random() - 0.5) * 100,
+            y: (Math.random() - 0.5) * 100,
             degree: degree[i],
             radius: 2 + (degree[i] / maxDeg) * 4,
         }));
@@ -96,11 +96,13 @@ export class GraphViewer {
         this.canvas.style.cursor = 'grab';
         this.container.appendChild(this.canvas);
 
+        // ctx must exist before _resizeCanvas so the DPR transform is applied
+        // on the very first render — without it, CSS coordinates map to device
+        // pixels, placing the graph in the top-left quarter on retina displays.
+        this.ctx = this.canvas.getContext('2d');
         this._resizeCanvas();
         this._resizeHandler = () => this._resizeCanvas();
         window.addEventListener('resize', this._resizeHandler);
-
-        this.ctx = this.canvas.getContext('2d');
     }
 
     _resizeCanvas() {
@@ -203,65 +205,72 @@ export class GraphViewer {
     }
 
     _startSimulation() {
-        // Simple force simulation (no D3 dependency)
         const centerX = this.canvas.width / (2 * Math.min(window.devicePixelRatio, 2));
         const centerY = this.canvas.height / (2 * Math.min(window.devicePixelRatio, 2));
-
         this.transform.x = centerX;
         this.transform.y = centerY;
 
-        let alpha = 1;
-        const decay = 0.995;
+        // Force constants tuned so equilibrium radius ≈ (N*REPULSE/GRAVITY)^(1/3) ≈ 46 units
+        const REST    = 20;
+        const SPRING  = 0.02;
+        const REPULSE = 30;
+        const GRAVITY = 0.1;
+        const DECAY   = 0.985;
+        const n = this.nodes.length;
 
-        const tick = () => {
-            if (alpha < 0.001) {
-                this._draw();
-                return;
-            }
-
-            // Simple force: repulsion between nodes
-            for (let i = 0; i < this.nodes.length; i++) {
-                for (let j = i + 1; j < Math.min(this.nodes.length, i + 50); j++) {
+        const step = (alpha) => {
+            for (let i = 0; i < n; i++) {
+                for (let j = i + 1; j < n; j++) {
                     const ni = this.nodes[i], nj = this.nodes[j];
-                    let dx = nj.x - ni.x;
-                    let dy = nj.y - ni.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                    const force = -30 / (dist * dist) * alpha;
-                    dx *= force; dy *= force;
-                    if (!ni.fx) { ni.x -= dx; ni.y -= dy; }
-                    if (!nj.fx) { nj.x += dx; nj.y += dy; }
+                    const dx = nj.x - ni.x, dy = nj.y - ni.y;
+                    const dist2 = dx * dx + dy * dy || 0.01;
+                    const dist  = Math.sqrt(dist2);
+                    const f  = REPULSE / dist2 * alpha;
+                    const fx = (dx / dist) * f, fy = (dy / dist) * f;
+                    if (!ni.fx) { ni.x -= fx; ni.y -= fy; }
+                    if (!nj.fx) { nj.x += fx; nj.y += fy; }
                 }
             }
-
-            // Attraction along edges
-            for (const link of this.links) {
-                const s = this.nodes[link.source];
-                const t = this.nodes[link.target];
+            for (const lk of this.links) {
+                const s = this.nodes[lk.source], t = this.nodes[lk.target];
                 if (!s || !t) continue;
-                let dx = t.x - s.x;
-                let dy = t.y - s.y;
+                const dx = t.x - s.x, dy = t.y - s.y;
                 const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                const force = (dist - 20) * 0.01 * alpha;
-                dx = (dx / dist) * force;
-                dy = (dy / dist) * force;
-                if (!s.fx) { s.x += dx; s.y += dy; }
-                if (!t.fx) { t.x -= dx; t.y -= dy; }
+                const f  = (dist - REST) * SPRING * alpha;
+                const fx = (dx / dist) * f, fy = (dy / dist) * f;
+                if (!s.fx) { s.x += fx; s.y += fy; }
+                if (!t.fx) { t.x -= fx; t.y -= fy; }
             }
-
-            // Center gravity
-            for (const n of this.nodes) {
-                if (!n.fx) {
-                    n.x += (0 - n.x) * 0.001 * alpha;
-                    n.y += (0 - n.y) * 0.001 * alpha;
+            for (const nd of this.nodes) {
+                if (!nd.fx) {
+                    nd.x -= nd.x * GRAVITY * alpha;
+                    nd.y -= nd.y * GRAVITY * alpha;
                 }
             }
+        };
 
-            alpha *= decay;
+        // Synchronous warm-up: settle ~85% before first render so the graph
+        // appears compact instead of mid-explosion (~20ms for 400 nodes).
+        let alpha = 1.0;
+        while (alpha > 0.02) { step(alpha); alpha *= DECAY; }
+
+        // Short animation phase for the final settling
+        const tick = () => {
+            if (alpha < 0.005) { this._draw(); return; }
+            step(alpha);
+            alpha *= DECAY;
             this._draw();
             this.animationId = requestAnimationFrame(tick);
         };
 
-        this.simulation = { alpha: (a) => { alpha = a; return this.simulation; }, restart: () => { tick(); return this.simulation; } };
+        this.simulation = {
+            alpha: (a) => { alpha = a; return this.simulation; },
+            restart: () => {
+                if (this.animationId) cancelAnimationFrame(this.animationId);
+                tick();
+                return this.simulation;
+            },
+        };
         tick();
     }
 
