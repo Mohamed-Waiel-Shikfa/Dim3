@@ -279,13 +279,6 @@
                 </div>
             </div>
 
-            <!-- PointNet Panel 5: Point Density / Normals (extra) -->
-            <div class="snap-panel flex-shrink-0 w-full h-full">
-                <div class="panel-box" x-data="{ init() { if(fileLoaded) initPanel('pc-density', $el); } }">
-                    <div class="panel-viewport" :id="'vp-pc-density'"></div>
-                    <div class="panel-loading" x-show="isLoading('pc-density')"><div class="spinner"></div></div>
-                </div>
-            </div>
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════
@@ -340,18 +333,17 @@
 
 <!-- ── Pipeline Controller (ES Module) ─────────────────────────────────── -->
 <script type="module">
-import { MeshViewport } from '/static/js/components/mesh-viewport.js';
-import { PanelNote } from '/static/js/components/panel-note.js';
-import { LidarScanner } from '/static/js/components/lidar-scanner.js';
+import { MeshViewport } from '/static/js/components/mesh-viewport.js?v=5';
+import { PanelNote } from '/static/js/components/panel-note.js?v=5';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { VoxelOverlay } from '/static/js/components/voxel-overlay.js';
-import { SliceGridViewer } from '/static/js/components/slice-grid.js';
-import { PointCloudViewer } from '/static/js/components/point-cloud.js';
-import { ProjectionViewer } from '/static/js/components/projection-viewer.js';
-import { GraphViewer } from '/static/js/components/graph-viewer.js';
+import { VoxelOverlay } from '/static/js/components/voxel-overlay.js?v=5';
+import { SliceGridViewer } from '/static/js/components/slice-grid.js?v=5';
+import { PointCloudViewer } from '/static/js/components/point-cloud.js?v=5';
+import { ProjectionViewer } from '/static/js/components/projection-viewer.js?v=5';
+import { GraphViewer } from '/static/js/components/graph-viewer.js?v=5';
 
-import { SoundEngine } from '/static/js/sound-engine.js';
-import { computeVoxelization, samplePointCloud, extractGraph } from '/static/js/geometry_utils.js';
+import { SoundEngine } from '/static/js/sound-engine.js?v=5';
+import { computeVoxelization, samplePointCloud, extractGraph } from '/static/js/geometry_utils.js?v=5';
 // Panel note definitions
 const PANEL_NOTES = {
     'cnn-ingest': {
@@ -440,14 +432,6 @@ const PANEL_NOTES = {
             'Point cloud projected onto XY, XZ, and YZ planes',
             'Reveals the shape silhouette from each major viewing angle',
             'Helps verify spatial coverage of the sampling',
-        ]
-    },
-    'pc-density': {
-        title: 'Step 05 // Spatial Distribution',
-        bullets: [
-            'Point color encodes local density',
-            'Bright = dense region, dim = sparse',
-            'Validates that sampling captures shape uniformly',
         ]
     },
     'gnn-ingest': {
@@ -544,11 +528,10 @@ window.pipelineController = function() {
 
         handleSamplingChange(method) {
             if (this.activePipeline === 1 && this.fileLoaded) {
-                // Re-process point cloud panels with new method
+                Object.keys(state.processedData).forEach(k => { if (k.startsWith('pc-') && k !== 'pc-ingest' && k !== 'pc-normalize') delete state.processedData[k]; });
                 this.$nextTick(() => {
                     this.runStep('pc-cloud');
                     this.runStep('pc-projections');
-                    this.runStep('pc-density');
                 });
             }
         },
@@ -567,12 +550,11 @@ window.pipelineController = function() {
                     this.runStep('cnn-density');
                 });
             } else if (modelIndex === 1) {
-                // PointNet: point count changed — bust pc cache, re-render cloud panels
-                Object.keys(state.processedData).forEach(k => { if (k.startsWith('pc-')) delete state.processedData[k]; });
+                // Bust only point-cloud data cache, NOT the ingest key (pc-ingest holds the obj_url)
+                Object.keys(state.processedData).forEach(k => { if (k.startsWith('pc-') && k !== 'pc-ingest' && k !== 'pc-normalize') delete state.processedData[k]; });
                 this.$nextTick(() => {
                     this.runStep('pc-cloud');
                     this.runStep('pc-projections');
-                    this.runStep('pc-density');
                 });
             }
         },
@@ -600,7 +582,6 @@ window.pipelineController = function() {
                 await this.runStep('pc-normalize');
                 this.runStep('pc-cloud');
                 this.runStep('pc-projections');
-                this.runStep('pc-density');
             } else {
                 await this.runStep('gnn-lowpoly');
                 await this.runStep('gnn-wireframe');
@@ -714,7 +695,6 @@ async function processStep(panelId) {
 
         case 'pc-cloud':
         case 'pc-projections':
-        case 'pc-density':
             let pcKey = `pc-${settings.pointCount}-${settings.samplingMethod}`;
             if (!state.processedData[pcKey]) {
                 state.processedData[pcKey] = samplePointCloud(meshObj, settings.pointCount || 1024, settings.samplingMethod || 'fps');
@@ -804,6 +784,10 @@ function renderPanel(panelId, data, isFirstLoad = false) {
                 // Recompute voxelization on the SCENE-PLACED mesh (after _fitToView applied transform)
                 // This is critical: the overlay geometry bakes absolute coords, so they must
                 // match the mesh's current world-space position/scale, not the raw local space.
+                // _fitToView sets obj.position AFTER the last matrixWorld update,
+                // so we must force-recompute before computing world-space voxel coords.
+                obj.updateWorldMatrix(true, true);
+
                 let sceneMesh = null;
                 obj.traverse(c => { if (c.isMesh && !sceneMesh) sceneMesh = c; });
                 if (sceneMesh) {
@@ -848,17 +832,6 @@ function renderPanel(panelId, data, isFirstLoad = false) {
         if (data.points) {
             const viewer = new ProjectionViewer(container);
             viewer.build(data.points);
-        }
-    }
-    else if (panelId === 'pc-density') {
-        // Point cloud with density coloring (re-render with different settings)
-        if (data.points) {
-            const viewer = new PointCloudViewer(container, {
-                pointSize: 4.0,
-                pointColor: 0x22d3ee,
-            });
-            window.dim3.registerViewport(viewer);
-            viewer.loadPoints(data.points);
         }
     }
     else if (panelId === 'gnn-wireframe') {
