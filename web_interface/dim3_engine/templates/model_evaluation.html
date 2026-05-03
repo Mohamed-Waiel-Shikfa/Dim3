@@ -1,8 +1,175 @@
-<div class="w-full h-full flex">
-    <div class="flex-1 w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl p-12 shadow-2xl flex flex-col items-center justify-center relative overflow-hidden transition-all duration-700">
-        <div class="absolute inset-0 bg-[var(--accent)] opacity-[0.03] blur-[120px] pointer-events-none"></div>
+<div id="navbar-tools" hx-swap-oob="true" class="flex items-center gap-4 h-full">
+    <span class="text-xs text-[var(--accent)] font-bold uppercase tracking-wider">Evaluation Mode</span>
+</div>
 
-        <h1 class="text-5xl font-black text-[var(--accent)] tracking-tight mb-4 [text-shadow:var(--text-glow)] relative z-10">Model Evaluation</h1>
-        <p class="text-slate-400 font-mono text-sm tracking-widest uppercase relative z-10">Module Offline / Coming Soon</p>
+<div class="w-full h-full relative" x-data="evaluationController()">
+
+    <div x-show="!modelLoaded" class="w-full h-full flex p-4">
+        <div class="flex-1 w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl p-12 shadow-2xl flex flex-col items-center justify-center relative overflow-hidden transition-all duration-700">
+            <div class="absolute inset-0 bg-[var(--accent)] opacity-[0.03] blur-[120px] pointer-events-none"></div>
+            <h2 class="text-4xl font-black text-[var(--accent)] tracking-tight mb-8 [text-shadow:var(--text-glow)] relative z-10">Upload Trained Model</h2>
+
+            <label class="cursor-pointer bg-black/40 border border-[var(--accent-dim)] rounded-2xl p-10 flex flex-col items-center gap-4 hover:border-[var(--accent)] transition-colors relative z-10 group">
+                <svg class="w-16 h-16 text-[var(--accent)] group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                <span class="text-sm font-bold text-slate-300 uppercase tracking-widest">Select .pt or .h5 Model File</span>
+                <input type="file" accept=".pt,.pth,.h5,.keras" class="hidden" @change="loadModel($event)">
+            </label>
+        </div>
+    </div>
+
+    <div x-show="modelLoaded" style="display:none;" class="w-full h-full snap-container overflow-y-scroll hide-scrollbar pt-4 px-4 pb-0">
+
+        <div class="snap-panel flex-shrink-0 w-full h-full pb-4">
+            <div class="panel-box p-10 flex flex-col">
+                <h2 class="text-3xl font-black text-[var(--accent)] tracking-tight mb-2 [text-shadow:var(--text-glow)]">Single Query Inference</h2>
+                <p class="text-slate-400 font-mono text-xs tracking-widest uppercase mb-8">Upload a 3D mesh object to predict its class</p>
+
+                <div class="flex-1 flex gap-8">
+                    <div class="flex-1 border-2 border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center bg-black/20 hover:border-[var(--accent-dim)] transition-colors relative">
+                        <input type="file" accept=".obj,.ply,.stl" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" @change="predictSingle($event)">
+                        <svg class="w-12 h-12 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                        <span class="text-sm font-bold text-slate-400 uppercase tracking-wider" x-text="singleFileName || 'Drop Mesh Here'"></span>
+                    </div>
+
+                    <div class="flex-1 bg-black/40 rounded-2xl border border-[var(--accent-dim)] p-8 flex flex-col items-center justify-center relative overflow-hidden">
+                        <div x-show="isPredicting" class="spinner"></div>
+                        <div x-show="!isPredicting && predictedClass" style="display:none;" class="text-center">
+                            <div class="text-xs text-slate-500 uppercase font-bold tracking-widest mb-2">Predicted Classification</div>
+                            <div class="text-5xl font-black text-[var(--accent)] [text-shadow:var(--text-glow)] uppercase tracking-tighter" x-text="predictedClass"></div>
+                            <div class="mt-4 inline-block bg-[var(--accent-dim)] text-[var(--accent)] px-3 py-1 rounded text-xs font-mono font-bold">
+                                Confidence Level: <span x-text="confidence"></span>%
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="snap-panel flex-shrink-0 w-full h-full pb-4">
+            <div class="panel-box p-10 flex flex-col">
+                <h2 class="text-3xl font-black text-[var(--accent)] tracking-tight mb-2 [text-shadow:var(--text-glow)]">Batch Set Performance</h2>
+                <p class="text-slate-400 font-mono text-xs tracking-widest uppercase mb-8">Upload a labeled test set directory to calculate overall model metrics</p>
+
+                <div class="grid grid-cols-3 gap-6 flex-1">
+                    <div class="col-span-1 bg-black/20 border border-[var(--accent-dim)] rounded-2xl p-6 flex flex-col justify-center items-center gap-4 relative overflow-hidden">
+                        <svg class="w-16 h-16 text-slate-500 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                        <label class="cursor-pointer bg-[var(--bg-panel)] border border-[var(--accent)] text-[var(--accent)] px-6 py-2 rounded-lg font-bold uppercase tracking-wider hover:bg-[var(--accent)] hover:text-[var(--bg-panel)] transition-colors z-10">
+                            Select Test Folder
+                            <input type="file" webkitdirectory directory multiple class="hidden" @change="evaluateBatch($event)">
+                        </label>
+                        <div x-show="isEvaluating" class="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-20">
+                            <div class="spinner"></div>
+                        </div>
+                    </div>
+
+                    <div class="col-span-2 grid grid-cols-2 grid-rows-2 gap-4">
+                        <div class="bg-black/30 rounded-xl border border-white/5 p-6 flex flex-col justify-center items-center text-center">
+                            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-2">Overall Accuracy</div>
+                            <div class="text-5xl font-black text-[var(--accent)] [text-shadow:var(--text-glow)]" x-text="metrics.accuracy ? metrics.accuracy + '%' : '--'"></div>
+                        </div>
+                        <div class="bg-black/30 rounded-xl border border-white/5 p-6 flex flex-col justify-center items-center text-center">
+                            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-2">Average Precision</div>
+                            <div class="text-5xl font-black text-white" x-text="metrics.precision ? metrics.precision : '--'"></div>
+                        </div>
+                        <div class="bg-black/30 rounded-xl border border-white/5 p-6 flex flex-col justify-center items-center text-center">
+                            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-2">Average Recall</div>
+                            <div class="text-5xl font-black text-white" x-text="metrics.recall ? metrics.recall : '--'"></div>
+                        </div>
+                        <div class="bg-black/30 rounded-xl border border-white/5 p-6 flex flex-col justify-center items-center text-center">
+                            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-2">F1 Score</div>
+                            <div class="text-5xl font-black text-white" x-text="metrics.f1 ? metrics.f1 : '--'"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
+
+<style>
+    .snap-container { scroll-snap-type: y mandatory; }
+    .snap-panel { scroll-snap-align: start; scroll-snap-stop: always; }
+    .panel-box {
+        background: var(--bg-panel);
+        border: 1px solid var(--accent-dim);
+        border-radius: 1.5rem;
+        position: relative;
+        overflow: hidden;
+    }
+    .spinner {
+        width: 40px; height: 40px;
+        border: 4px solid var(--accent-dim);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+<script>
+    function evaluationController() {
+        return {
+            modelLoaded: false,
+            modelName: '',
+
+            // Single Panel Variables
+            singleFileName: '',
+            isPredicting: false,
+            predictedClass: '',
+            confidence: 0,
+
+            // Batch Evaluation Variables
+            isEvaluating: false,
+            metrics: {
+                accuracy: null,
+                precision: null,
+                recall: null,
+                f1: null
+            },
+
+            loadModel(e) {
+                if (e.target.files && e.target.files[0]) {
+                    this.modelName = e.target.files[0].name;
+                    this.modelLoaded = true;
+                    if(window.dim3Sound) window.dim3Sound.play('switch');
+                }
+            },
+
+            predictSingle(e) {
+                if (e.target.files && e.target.files[0]) {
+                    this.singleFileName = e.target.files[0].name;
+                    this.isPredicting = true;
+                    this.predictedClass = '';
+
+                    // Simulate backend call
+                    setTimeout(() => {
+                        this.isPredicting = false;
+                        const classes = ['Apple', 'Orange', 'Banana', 'Pear'];
+                        this.predictedClass = classes[Math.floor(Math.random() * classes.length)];
+                        this.confidence = (Math.random() * 20 + 80).toFixed(1);
+                        if(window.dim3Sound) window.dim3Sound.play('tick');
+                    }, 1200);
+                }
+            },
+
+            evaluateBatch(e) {
+                if (e.target.files && e.target.files.length > 0) {
+                    this.isEvaluating = true;
+
+                    // Simulate large batch evaluation calculations
+                    setTimeout(() => {
+                        this.isEvaluating = false;
+                        this.metrics = {
+                            accuracy: (Math.random() * 8 + 88).toFixed(1),
+                            precision: (Math.random() * 0.1 + 0.88).toFixed(2),
+                            recall: (Math.random() * 0.1 + 0.88).toFixed(2),
+                            f1: (Math.random() * 0.1 + 0.88).toFixed(2)
+                        };
+                        if(window.dim3Sound) window.dim3Sound.play('tick');
+                    }, 2000);
+                }
+            }
+        }
+    }
+</script>
