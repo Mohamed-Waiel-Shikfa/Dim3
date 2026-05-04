@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 
 from processing.pipeline import ProcessingPipeline
 from training.trainer import run_training
+from evaluation.routes import eval_router
 
 # ── App Setup ────────────────────────────────────────────────────────────────
 app = FastAPI()
@@ -37,6 +38,8 @@ app.mount("/data", StaticFiles(directory=str(OUTPUT_DIR)), name="data")
 
 pipeline = ProcessingPipeline(str(UPLOAD_DIR), str(OUTPUT_DIR))
 
+app.state.pipeline = pipeline
+app.include_router(eval_router)
 
 # ── Page Routes ──────────────────────────────────────────────────────────────
 @app.get("/")

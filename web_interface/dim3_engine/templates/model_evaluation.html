@@ -2,42 +2,100 @@
     <span class="text-xs text-[var(--accent)] font-bold uppercase tracking-wider">Evaluation Mode</span>
 </div>
 
+<style>
+    .snap-container { scroll-snap-type: y mandatory; }
+    .snap-panel { scroll-snap-align: start; scroll-snap-stop: always; padding-bottom: 2rem; }
+    .panel-box {
+        width: 100%; height: 100%;
+        background: var(--bg-panel);
+        border: 1px solid var(--accent-dim);
+        border-radius: 1.5rem;
+        position: relative;
+        overflow: hidden;
+        transition: border-color 0.7s, background 0.7s;
+    }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+</style>
+
 <div class="w-full h-full relative" x-data="evaluationController()">
 
-    <div x-show="!modelLoaded" class="w-full h-full flex p-4">
+    <div x-show="!modelLoaded" class="w-full h-full flex">
         <div class="flex-1 w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl p-12 shadow-2xl flex flex-col items-center justify-center relative overflow-hidden transition-all duration-700">
             <div class="absolute inset-0 bg-[var(--accent)] opacity-[0.03] blur-[120px] pointer-events-none"></div>
-            <h2 class="text-4xl font-black text-[var(--accent)] tracking-tight mb-8 [text-shadow:var(--text-glow)] relative z-10">Upload Trained Model</h2>
+            <h2 class="text-5xl font-black text-[var(--accent)] tracking-tight mb-8 [text-shadow:var(--text-glow)] relative z-10">Upload Trained Model</h2>
 
             <label class="cursor-pointer bg-black/40 border border-[var(--accent-dim)] rounded-2xl p-10 flex flex-col items-center gap-4 hover:border-[var(--accent)] transition-colors relative z-10 group">
                 <svg class="w-16 h-16 text-[var(--accent)] group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                <span class="text-sm font-bold text-slate-300 uppercase tracking-widest">Select .pt or .h5 Model File</span>
-                <input type="file" accept=".pt,.pth,.h5,.keras" class="hidden" @change="loadModel($event)">
+                <span class="text-sm font-bold text-slate-300 uppercase tracking-widest">Select .zip Model Package</span>
+                <span class="text-xs text-slate-500 font-mono text-center">Must contain config.json, metrics.csv, and model.pt</span>
+                <input type="file" accept=".zip" class="hidden" @change="uploadModelZip($event)">
             </label>
         </div>
     </div>
 
-    <div x-show="modelLoaded" style="display:none;" class="w-full h-full snap-container overflow-y-scroll hide-scrollbar pt-4 px-4 pb-0">
+    <div x-show="modelLoaded" style="display:none;" class="w-full h-full snap-container overflow-y-scroll hide-scrollbar">
 
-        <div class="snap-panel flex-shrink-0 w-full h-full pb-4">
-            <div class="panel-box p-10 flex flex-col">
-                <h2 class="text-3xl font-black text-[var(--accent)] tracking-tight mb-2 [text-shadow:var(--text-glow)]">Single Query Inference</h2>
-                <p class="text-slate-400 font-mono text-xs tracking-widest uppercase mb-8">Upload a 3D mesh object to predict its class</p>
+        <div class="snap-panel flex-shrink-0 w-full h-full">
+            <div class="panel-box p-10 flex flex-col relative">
+                <h2 class="text-4xl font-black text-[var(--accent)] tracking-tight mb-6 [text-shadow:var(--text-glow)] shrink-0">Model Configuration</h2>
 
-                <div class="flex-1 flex gap-8">
-                    <div class="flex-1 border-2 border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center bg-black/20 hover:border-[var(--accent-dim)] transition-colors relative">
-                        <input type="file" accept=".obj,.ply,.stl" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" @change="predictSingle($event)">
-                        <svg class="w-12 h-12 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                        <span class="text-sm font-bold text-slate-400 uppercase tracking-wider" x-text="singleFileName || 'Drop Mesh Here'"></span>
+                <div class="flex gap-8 flex-1 overflow-hidden" x-show="config">
+                    <div class="flex-[2] flex flex-col gap-6">
+                        <div class="bg-black/20 border border-[var(--accent-dim)] rounded-2xl p-5 grid grid-cols-2 gap-6">
+                            <div class="flex flex-col">
+                                <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Model Type</span>
+                                <span class="text-[var(--accent)] font-black text-xl tracking-wider uppercase" x-text="config.model_type"></span>
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1" x-text="config.model_type === 'cnn' ? 'Grid Size' : 'Arch Param'"></span>
+                                <span class="text-white font-mono text-xl" x-text="config.arch_param"></span>
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Loss Function</span>
+                                <span class="text-white font-mono text-xl" x-text="config.loss_fn"></span>
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Epochs</span>
+                                <span class="text-white font-mono text-xl" x-text="config.epochs"></span>
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Batch Size</span>
+                                <span class="text-white font-mono text-xl" x-text="config.batch_size"></span>
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Learning Rate</span>
+                                <span class="text-white font-mono text-xl" x-text="config.lr"></span>
+                            </div>
+                        </div>
+
+                        <div class="bg-black/20 border border-[var(--accent-dim)] rounded-2xl p-5 flex-1 overflow-y-auto hide-scrollbar">
+                            <span class="text-[10px] text-[var(--accent)] uppercase font-black tracking-widest block mb-4">Output Classes (<span x-text="config.n_classes"></span>)</span>
+                            <div class="flex flex-wrap gap-2">
+                                <template x-for="cls in config.class_names">
+                                    <span class="bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg text-[10px] text-white font-mono uppercase font-bold" x-text="cls"></span>
+                                </template>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="flex-1 bg-black/40 rounded-2xl border border-[var(--accent-dim)] p-8 flex flex-col items-center justify-center relative overflow-hidden">
-                        <div x-show="isPredicting" class="spinner"></div>
-                        <div x-show="!isPredicting && predictedClass" style="display:none;" class="text-center">
-                            <div class="text-xs text-slate-500 uppercase font-bold tracking-widest mb-2">Predicted Classification</div>
-                            <div class="text-5xl font-black text-[var(--accent)] [text-shadow:var(--text-glow)] uppercase tracking-tighter" x-text="predictedClass"></div>
-                            <div class="mt-4 inline-block bg-[var(--accent-dim)] text-[var(--accent)] px-3 py-1 rounded text-xs font-mono font-bold">
-                                Confidence Level: <span x-text="confidence"></span>%
+                    <div class="flex-[3] bg-black/20 border border-[var(--accent-dim)] rounded-2xl p-6 flex flex-col relative overflow-hidden">
+                        <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest block mb-6">Network Architecture Overview</span>
+                        <div class="flex-1 flex overflow-x-auto hide-scrollbar items-center px-4 gap-6">
+                            <template x-for="(layer, i) in config.layers" :key="i">
+                                <div class="flex items-center gap-6">
+                                    <div class="w-32 h-32 bg-[var(--bg-panel)] border border-[var(--accent)] rounded-2xl flex flex-col items-center justify-center relative shadow-[0_0_15px_rgba(212,160,23,0.15)] shrink-0">
+                                        <span class="text-[10px] text-[var(--accent)] font-black uppercase tracking-widest mb-2" x-text="layer.type"></span>
+                                        <span class="text-3xl font-black text-white" x-text="layer.nodes"></span>
+                                        <span class="text-[9px] text-slate-500 uppercase font-bold tracking-wider mt-2">Nodes</span>
+                                    </div>
+                                    <svg class="w-8 h-8 text-white/20 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                                </div>
+                            </template>
+                            <div class="w-32 h-32 bg-[var(--bg-panel)] border border-emerald-500 rounded-2xl flex flex-col items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.2)] shrink-0">
+                                <span class="text-[10px] text-emerald-500 font-black uppercase tracking-widest mb-2">Output</span>
+                                <span class="text-3xl font-black text-white" x-text="config.n_classes"></span>
+                                <span class="text-[9px] text-slate-500 uppercase font-bold tracking-wider mt-2">Nodes</span>
                             </div>
                         </div>
                     </div>
@@ -45,40 +103,112 @@
             </div>
         </div>
 
-        <div class="snap-panel flex-shrink-0 w-full h-full pb-4">
-            <div class="panel-box p-10 flex flex-col">
-                <h2 class="text-3xl font-black text-[var(--accent)] tracking-tight mb-2 [text-shadow:var(--text-glow)]">Batch Set Performance</h2>
-                <p class="text-slate-400 font-mono text-xs tracking-widest uppercase mb-8">Upload a labeled test set directory to calculate overall model metrics</p>
+        <div class="snap-panel flex-shrink-0 w-full h-full">
+            <div class="panel-box p-10 flex flex-col relative">
+                <h2 class="text-4xl font-black text-[var(--accent)] tracking-tight mb-6 [text-shadow:var(--text-glow)] shrink-0">Training History Dashboard</h2>
 
-                <div class="grid grid-cols-3 gap-6 flex-1">
-                    <div class="col-span-1 bg-black/20 border border-[var(--accent-dim)] rounded-2xl p-6 flex flex-col justify-center items-center gap-4 relative overflow-hidden">
-                        <svg class="w-16 h-16 text-slate-500 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-                        <label class="cursor-pointer bg-[var(--bg-panel)] border border-[var(--accent)] text-[var(--accent)] px-6 py-2 rounded-lg font-bold uppercase tracking-wider hover:bg-[var(--accent)] hover:text-[var(--bg-panel)] transition-colors z-10">
-                            Select Test Folder
-                            <input type="file" webkitdirectory directory multiple class="hidden" @change="evaluateBatch($event)">
-                        </label>
-                        <div x-show="isEvaluating" class="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-20">
-                            <div class="spinner"></div>
+                <div class="flex-1 grid grid-cols-2 grid-rows-2 gap-8" x-show="metrics">
+                    <div class="bg-black/30 border border-[var(--accent-dim)] rounded-3xl p-8 flex flex-col relative overflow-hidden">
+                        <div class="flex justify-between items-center z-10 mb-6 shrink-0">
+                            <span class="text-xs font-black text-slate-400 uppercase tracking-widest">Final Accuracy</span>
+                            <span class="text-4xl font-black text-white" x-text="(metrics.accuracy * 100).toFixed(1) + '%'"></span>
+                        </div>
+                        <div class="flex-1 flex items-end gap-1 z-10 overflow-x-auto overflow-y-hidden hide-scrollbar">
+                            <template x-for="(val, i) in histories.accuracy" :key="i">
+                                <div class="w-3 shrink-0 bg-white opacity-50 rounded-t-sm" :style="`height: ${val*100}%`"></div>
+                            </template>
                         </div>
                     </div>
 
-                    <div class="col-span-2 grid grid-cols-2 grid-rows-2 gap-4">
-                        <div class="bg-black/30 rounded-xl border border-white/5 p-6 flex flex-col justify-center items-center text-center">
-                            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-2">Overall Accuracy</div>
-                            <div class="text-5xl font-black text-[var(--accent)] [text-shadow:var(--text-glow)]" x-text="metrics.accuracy ? metrics.accuracy + '%' : '--'"></div>
+                    <div class="bg-black/30 border border-[var(--accent-dim)] rounded-3xl p-8 flex flex-col relative overflow-hidden">
+                        <div class="flex justify-between items-center z-10 mb-6 shrink-0">
+                            <span class="text-xs font-black text-slate-400 uppercase tracking-widest">Validation Loss</span>
+                            <span class="text-4xl font-black text-red-400" x-text="metrics.valLoss.toFixed(4)"></span>
                         </div>
-                        <div class="bg-black/30 rounded-xl border border-white/5 p-6 flex flex-col justify-center items-center text-center">
-                            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-2">Average Precision</div>
-                            <div class="text-5xl font-black text-white" x-text="metrics.precision ? metrics.precision : '--'"></div>
+                        <div class="flex-1 flex items-end gap-1 z-10 overflow-x-auto overflow-y-hidden hide-scrollbar">
+                            <template x-for="(val, i) in histories.valLoss" :key="i">
+                                <div class="w-3 shrink-0 bg-red-400 rounded-t-sm" :style="`height: ${Math.min((val/Math.max(...histories.valLoss))*100, 100)}%`"></div>
+                            </template>
                         </div>
-                        <div class="bg-black/30 rounded-xl border border-white/5 p-6 flex flex-col justify-center items-center text-center">
-                            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-2">Average Recall</div>
-                            <div class="text-5xl font-black text-white" x-text="metrics.recall ? metrics.recall : '--'"></div>
+                    </div>
+
+                    <div class="bg-black/30 border border-[var(--accent-dim)] rounded-3xl p-8 flex flex-col relative overflow-hidden">
+                        <div class="flex justify-between items-center z-10 mb-6 shrink-0">
+                            <span class="text-xs font-black text-slate-400 uppercase tracking-widest">Training Loss</span>
+                            <span class="text-4xl font-black text-blue-400" x-text="metrics.trainLoss.toFixed(4)"></span>
                         </div>
-                        <div class="bg-black/30 rounded-xl border border-white/5 p-6 flex flex-col justify-center items-center text-center">
-                            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-2">F1 Score</div>
-                            <div class="text-5xl font-black text-white" x-text="metrics.f1 ? metrics.f1 : '--'"></div>
+                        <div class="flex-1 flex items-end gap-1 z-10 overflow-x-auto overflow-y-hidden hide-scrollbar">
+                            <template x-for="(val, i) in histories.trainLoss" :key="i">
+                                <div class="w-3 shrink-0 bg-blue-400 rounded-t-sm" :style="`height: ${Math.min((val/Math.max(...histories.trainLoss))*100, 100)}%`"></div>
+                            </template>
                         </div>
+                    </div>
+
+                    <div class="bg-black/30 border border-[var(--accent-dim)] rounded-3xl p-8 flex flex-col items-center justify-center relative overflow-hidden">
+                        <span class="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Total Epochs Trained</span>
+                        <span class="text-7xl font-black text-[var(--accent)]" x-text="config?.epochs"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="snap-panel flex-shrink-0 w-full h-full">
+            <div class="panel-box flex">
+                <div class="flex-1 border-r border-[var(--accent-dim)] relative bg-black/50" id="inference-viewport-container">
+                    <div class="absolute top-6 left-6 z-10">
+                        <label class="bg-black/60 px-6 py-3 rounded-xl border border-[var(--accent)] cursor-pointer text-[var(--accent)] text-sm font-bold uppercase hover:bg-[var(--accent)] hover:text-black transition shadow-[0_0_15px_rgba(212,160,23,0.2)]">
+                            Upload 3D Model
+                            <input type="file" accept=".obj,.ply,.stl" class="hidden" @change="uploadInferenceModel($event)">
+                        </label>
+                    </div>
+                </div>
+                <div class="flex-1 flex flex-col items-center justify-center relative p-12 bg-black/20">
+                    <h2 class="text-3xl font-black text-[var(--accent)] tracking-tight absolute top-10 text-center w-full uppercase">Single Inference</h2>
+
+                    <div class="w-72 h-72 border-4 border-[var(--accent-dim)] rounded-full flex flex-col items-center justify-center relative overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+                        <div class="absolute inset-0 bg-[var(--accent)] opacity-[0.05]"></div>
+                        <span class="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">Prediction</span>
+                        <span class="text-4xl font-black text-white uppercase tracking-wider" x-text="inferenceResult || '---'"></span>
+                        <span class="text-xs text-[var(--accent)] mt-4 font-mono font-bold" x-show="inferenceConfidence" x-text="'CONFIDENCE: ' + inferenceConfidence + '%'"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="snap-panel flex-shrink-0 w-full h-full">
+            <div class="panel-box flex flex-col items-center justify-center p-12 relative">
+                <h2 class="text-5xl font-black text-[var(--accent)] tracking-tight mb-10 [text-shadow:var(--text-glow)]">Batch Evaluation</h2>
+
+                <label class="bg-black/40 border-2 border-dashed border-[var(--accent-dim)] p-12 rounded-3xl cursor-pointer hover:border-[var(--accent)] transition-colors flex flex-col items-center mb-16 w-[400px]">
+                    <svg class="w-16 h-16 text-[var(--accent)] mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    <span class="text-white font-bold uppercase tracking-widest text-lg">Upload Test Directory</span>
+                    <span class="text-slate-500 font-mono text-xs mt-2 text-center">Evaluates class-specific accuracy</span>
+                    <input type="file" webkitdirectory directory multiple class="hidden" @change="uploadTestSet($event)">
+                </label>
+
+                <div x-show="isEvaluating" class="absolute inset-0 bg-[var(--bg-panel)]/90 backdrop-blur flex items-center justify-center z-50 transition-opacity">
+                    <div class="flex flex-col items-center">
+                        <div class="w-12 h-12 border-4 border-[var(--accent-dim)] border-t-[var(--accent)] rounded-full animate-spin mb-4"></div>
+                        <span class="text-[var(--accent)] font-bold uppercase tracking-widest">Evaluating Test Set...</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-4 gap-6 w-full max-w-5xl transition-all duration-500" :class="testMetrics ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'">
+                    <div class="bg-black/30 border border-[var(--accent-dim)] rounded-2xl p-8 flex flex-col items-center shadow-lg">
+                        <span class="text-[10px] text-slate-400 uppercase tracking-widest font-black mb-3">Overall Accuracy</span>
+                        <span class="text-5xl font-black text-[var(--accent)]" x-text="testMetrics ? testMetrics.accuracy + '%' : '0%'"></span>
+                    </div>
+                    <div class="bg-black/30 border border-[var(--accent-dim)] rounded-2xl p-8 flex flex-col items-center shadow-lg">
+                        <span class="text-[10px] text-slate-400 uppercase tracking-widest font-black mb-3">MSE</span>
+                        <span class="text-4xl font-black text-white mt-1" x-text="testMetrics ? testMetrics.mse : '0.00'"></span>
+                    </div>
+                    <div class="bg-black/30 border border-[var(--accent-dim)] rounded-2xl p-8 flex flex-col items-center shadow-lg">
+                        <span class="text-[10px] text-slate-400 uppercase tracking-widest font-black mb-3">Precision (Avg)</span>
+                        <span class="text-4xl font-black text-white mt-1" x-text="testMetrics ? testMetrics.precision : '0.00'"></span>
+                    </div>
+                    <div class="bg-black/30 border border-[var(--accent-dim)] rounded-2xl p-8 flex flex-col items-center shadow-lg">
+                        <span class="text-[10px] text-slate-400 uppercase tracking-widest font-black mb-3">F1 Score (Avg)</span>
+                        <span class="text-4xl font-black text-white mt-1" x-text="testMetrics ? testMetrics.f1 : '0.00'"></span>
                     </div>
                 </div>
             </div>
@@ -87,89 +217,136 @@
     </div>
 </div>
 
-<style>
-    .snap-container { scroll-snap-type: y mandatory; }
-    .snap-panel { scroll-snap-align: start; scroll-snap-stop: always; }
-    .panel-box {
-        background: var(--bg-panel);
-        border: 1px solid var(--accent-dim);
-        border-radius: 1.5rem;
-        position: relative;
-        overflow: hidden;
-    }
-    .spinner {
-        width: 40px; height: 40px;
-        border: 4px solid var(--accent-dim);
-        border-top-color: var(--accent);
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-</style>
+<script type="module">
+    import { MeshViewport } from '/static/js/components/mesh-viewport.js?v=5';
+    window.MeshViewport = MeshViewport;
+</script>
 
 <script>
-    function evaluationController() {
-        return {
-            modelLoaded: false,
-            modelName: '',
+function evaluationController() {
+    return {
+        modelLoaded: false,
+        isEvaluating: false,
+        config: null,
+        metrics: null,
+        histories: { trainLoss: [], valLoss: [], accuracy: [] },
 
-            // Single Panel Variables
-            singleFileName: '',
-            isPredicting: false,
-            predictedClass: '',
-            confidence: 0,
+        inferenceResult: '',
+        inferenceConfidence: '',
+        inferenceViewport: null,
 
-            // Batch Evaluation Variables
-            isEvaluating: false,
-            metrics: {
-                accuracy: null,
-                precision: null,
-                recall: null,
-                f1: null
-            },
+        testMetrics: null,
 
-            loadModel(e) {
-                if (e.target.files && e.target.files[0]) {
-                    this.modelName = e.target.files[0].name;
-                    this.modelLoaded = true;
-                    if(window.dim3Sound) window.dim3Sound.play('switch');
+        async uploadModelZip(e) {
+            if (!e.target.files || e.target.files.length === 0) return;
+            const file = e.target.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                // Post to backend to unzip and save to evaluation session dir
+                const res = await fetch('/api/eval/upload_model', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (data.error) throw new Error(data.error);
+
+                this.config = data.config;
+                this.parseMetrics(data.metrics_csv);
+                this.modelLoaded = true;
+
+                // Mount viewport once DOM updates
+                this.$nextTick(() => {
+                    const container = document.getElementById('inference-viewport-container');
+                    if (container && window.MeshViewport) {
+                        this.inferenceViewport = new window.MeshViewport(container, {
+                            autoRotate: true, backgroundColor: 0x000000
+                        });
+                        if (window.dim3) window.dim3.registerViewport(this.inferenceViewport);
+                    }
+                });
+            } catch (err) {
+                console.error(err);
+                alert("Failed to upload model package");
+            }
+        },
+
+        parseMetrics(csvText) {
+            this.histories = { trainLoss: [], valLoss: [], accuracy: [] };
+            const lines = csvText.trim().split('\n');
+            for (let i = 1; i < lines.length; i++) {
+                const parts = lines[i].split(',');
+                if (parts.length >= 4) {
+                    this.histories.trainLoss.push(parseFloat(parts[1]));
+                    this.histories.valLoss.push(parseFloat(parts[2]));
+                    this.histories.accuracy.push(parseFloat(parts[3]));
                 }
-            },
+            }
+            if (this.histories.accuracy.length > 0) {
+                this.metrics = {
+                    accuracy: this.histories.accuracy[this.histories.accuracy.length - 1],
+                    trainLoss: this.histories.trainLoss[this.histories.trainLoss.length - 1],
+                    valLoss: this.histories.valLoss[this.histories.valLoss.length - 1]
+                };
+            }
+        },
 
-            predictSingle(e) {
-                if (e.target.files && e.target.files[0]) {
-                    this.singleFileName = e.target.files[0].name;
-                    this.isPredicting = true;
-                    this.predictedClass = '';
+        async uploadInferenceModel(e) {
+            if (!e.target.files || e.target.files.length === 0) return;
+            const file = e.target.files[0];
 
-                    // Simulate backend call
-                    setTimeout(() => {
-                        this.isPredicting = false;
-                        const classes = ['Apple', 'Orange', 'Banana', 'Pear'];
-                        this.predictedClass = classes[Math.floor(Math.random() * classes.length)];
-                        this.confidence = (Math.random() * 20 + 80).toFixed(1);
-                        if(window.dim3Sound) window.dim3Sound.play('tick');
-                    }, 1200);
-                }
-            },
+            if (this.inferenceViewport) {
+                const url = URL.createObjectURL(file);
+                this.inferenceViewport.loadOBJ(url);
+            }
 
-            evaluateBatch(e) {
-                if (e.target.files && e.target.files.length > 0) {
-                    this.isEvaluating = true;
+            this.inferenceResult = 'Processing...';
+            this.inferenceConfidence = '';
 
-                    // Simulate large batch evaluation calculations
-                    setTimeout(() => {
-                        this.isEvaluating = false;
-                        this.metrics = {
-                            accuracy: (Math.random() * 8 + 88).toFixed(1),
-                            precision: (Math.random() * 0.1 + 0.88).toFixed(2),
-                            recall: (Math.random() * 0.1 + 0.88).toFixed(2),
-                            f1: (Math.random() * 0.1 + 0.88).toFixed(2)
-                        };
-                        if(window.dim3Sound) window.dim3Sound.play('tick');
-                    }, 2000);
-                }
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/api/eval/predict', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                this.inferenceResult = data.class;
+                this.inferenceConfidence = (data.confidence * 100).toFixed(1);
+            } catch (err) {
+                this.inferenceResult = 'Error';
+            }
+        },
+
+        async uploadTestSet(e) {
+            if (!e.target.files || e.target.files.length === 0) return;
+            this.isEvaluating = true;
+            this.testMetrics = null;
+
+            const formData = new FormData();
+            // Assign folders as classes based on webkitRelativePath
+            for (let i = 0; i < e.target.files.length; i++) {
+                let f = e.target.files[i];
+                formData.append('files', f, f.webkitRelativePath || f.name);
+            }
+
+            try {
+                const res = await fetch('/api/eval/batch', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                this.testMetrics = {
+                    accuracy: (data.accuracy * 100).toFixed(1),
+                    precision: data.precision.toFixed(2),
+                    f1: data.f1.toFixed(2),
+                    mse: data.mse.toFixed(3)
+                };
+            } catch (err) {
+                console.error(err);
+                alert("Batch evaluation failed");
+            } finally {
+                this.isEvaluating = false;
             }
         }
     }
+}
 </script>
