@@ -353,8 +353,9 @@
 
             <div class="flex justify-between items-center shrink-0 h-12">
 
-                <div x-show="status === 'training' || status === 'paused'" class="flex gap-4 w-full">
-                    <div class="flex gap-4">
+                <div x-show="['training','paused','uploading','extracting'].includes(status)" class="flex gap-4 w-full">
+                    <div class="flex gap-4 items-center">
+                        <div x-show="status === 'uploading' || status === 'extracting'" class="border border-[var(--accent)] text-[var(--accent)] px-6 py-2 rounded-lg font-bold uppercase tracking-wider opacity-60 text-xs" x-text="status === 'uploading' ? 'Uploading...' : 'Extracting features...'"></div>
                         <button x-show="status === 'training'" @click="pauseTraining()" class="border border-[var(--accent)] text-[var(--accent)] px-6 py-2 rounded-lg font-bold uppercase tracking-wider hover:bg-[var(--accent)] hover:text-[var(--bg-panel)] transition-colors">
                             Pause
                         </button>
@@ -431,7 +432,9 @@
 
             progress: 0,
             currentEpoch: 0,
-            interval: null,
+            eventSource: null,
+            jobId: null,
+            files: [],
             scrollAccumulators: {},
 
             metrics: {
@@ -529,27 +532,35 @@
             },
 
             resetSetup() {
+                if (this.jobId) fetch(`/api/train/stop/${this.jobId}`, {method: 'POST'}).catch(() => {});
+                if (this.eventSource) { this.eventSource.close(); this.eventSource = null; }
+                this.jobId = null;
                 this.status = 'setup';
-                clearInterval(this.interval);
                 this.progress = 0;
                 this.currentEpoch = 0;
                 this.histories = { trainLoss: [], valLoss: [], accuracy: [], gpu: [] };
-                this.metrics = { trainLoss: 1.8, valLoss: 1.9, accuracy: 0.1, gpu: 8.4 };
+                this.metrics = { trainLoss: 1.8, valLoss: 1.9, accuracy: 0.1, gpu: 0 };
             },
 
             handleDataset(e) {
-                let files = Array.from(e.target.files);
+                const IGNORE = /^\.|thumbs\.db$/i;
+                let files = Array.from(e.target.files).filter(f => !IGNORE.test(f.name));
+                this.files = files;
                 this.datasetStats.totalFiles = files.length;
                 let classCounts = {};
 
                 files.forEach(f => {
-                    let name = f.name;
-                    if(name.includes('_')) {
-                        let cls = name.split('_')[0].toLowerCase();
-                        classCounts[cls] = (classCounts[cls] || 0) + 1;
+                    const rel = f.webkitRelativePath || f.name;
+                    const parts = rel.split('/');
+                    let cls;
+                    if (parts.length >= 3) {
+                        cls = parts[1].toLowerCase();
                     } else {
-                        classCounts['unlabeled'] = (classCounts['unlabeled'] || 0) + 1;
+                        const stem = parts[parts.length - 1].replace(/\.[^.]+$/, '');
+                        const m = stem.match(/^([a-zA-Z]+)/);
+                        cls = m ? m[1].toLowerCase() : 'unlabeled';
                     }
+                    classCounts[cls] = (classCounts[cls] || 0) + 1;
                 });
 
                 this.datasetStats.classes = classCounts;
@@ -650,29 +661,105 @@
                 return positions;
             },
 
-            startTraining() {
-                this.status = 'training';
+            async startTraining() {
+                if (!this.files || this.files.length === 0) return;
+                this.status = 'uploading';
                 this.progress = 0;
                 this.currentEpoch = 0;
                 this.histories = { trainLoss: [], valLoss: [], accuracy: [], gpu: [] };
-                this.metrics = { trainLoss: 1.8, valLoss: 1.9, accuracy: 0.1, gpu: 8.4 };
-
-                this.simulateTraining();
+                this.metrics = { trainLoss: 0, valLoss: 0, accuracy: 0, gpu: 0 };
                 if(window.dim3Sound) window.dim3Sound.play('switch');
+                try {
+                    const fd = new FormData();
+                    // Send webkitRelativePath as filename so backend can derive class from directory name
+                    this.files.forEach(f => fd.append('files', f, f.webkitRelativePath || f.name));
+                    const upResp = await fetch('/api/train/upload', {method: 'POST', body: fd});
+                    if (!upResp.ok) throw new Error(`Upload failed: ${upResp.status}`);
+                    const upData = await upResp.json();
+                    this.jobId = upData.job_id;
+
+                    this.status = 'extracting';
+                    const modelTypes = ['cnn', 'pointnet', 'gnn'];
+                    const samplingMethods = ['fps', 'poisson', 'curvature'];
+                    const lossFnNames = ['CrossEntropyLoss', 'MSELoss', 'NLLLoss'];
+                    const config = {
+                        job_id:          this.jobId,
+                        model_type:      modelTypes[this.modelIndex],
+                        arch_param:      parseInt(this.params.archParam) || 32,
+                        sampling_method: samplingMethods[this.samplingIndex],
+                        layers:          this.layers.map(l => ({type: l.type, nodes: parseInt(l.nodes) || 64, actIndex: l.actIndex || 0})),
+                        loss_fn:         lossFnNames[this.lossIndex],
+                        epochs:          parseInt(this.params.epochs) || 10,
+                        batch_size:      parseInt(this.params.batchSize) || 16,
+                        lr:              parseFloat(this.params.lr) || 0.001,
+                        momentum:        parseFloat(this.params.momentum) || 0.9,
+                        val_split:       parseFloat(this.params.valSplit) || 20,
+                        rotations:       parseInt(this.params.rotations) || 3,
+                    };
+                    const startResp = await fetch('/api/train/start', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(config),
+                    });
+                    if (!startResp.ok) throw new Error(`Start failed: ${startResp.status}`);
+                    this._connectSSE();
+                } catch (err) {
+                    this.status = 'setup';
+                    alert('Error: ' + err.message);
+                }
+            },
+
+            _connectSSE() {
+                if (this.eventSource) this.eventSource.close();
+                this.eventSource = new EventSource(`/api/train/progress/${this.jobId}`);
+                this.eventSource.onmessage = (e) => {
+                    const data = JSON.parse(e.data);
+                    if (data.type === 'extracting') {
+                        this.status = 'extracting';
+                        this.progress = data.progress || 0;
+                    } else if (data.type === 'epoch') {
+                        this.status = 'training';
+                        this.currentEpoch = data.epoch;
+                        this.progress = data.progress;
+                        this.metrics.trainLoss = data.train_loss;
+                        this.metrics.valLoss   = data.val_loss;
+                        this.metrics.accuracy  = data.accuracy;
+                        this.metrics.gpu       = (data.memory_mb || 0) / 1000;
+                        this.histories.trainLoss.push(Math.max(0, data.train_loss));
+                        this.histories.valLoss.push(Math.max(0, data.val_loss));
+                        this.histories.accuracy.push(data.accuracy);
+                        this.histories.gpu.push(this.metrics.gpu);
+                        this.$nextTick(() => {
+                            ['g1','g2','g3','g4'].forEach(r => { if(this.$refs[r]) this.$refs[r].scrollLeft = this.$refs[r].scrollWidth; });
+                        });
+                    } else if (data.type === 'completed') {
+                        this.status = 'completed';
+                        this.progress = 100;
+                        this.eventSource.close();
+                        this.eventSource = null;
+                        if(window.dim3Sound) window.dim3Sound.play('switch');
+                    } else if (data.type === 'error') {
+                        this.eventSource.close();
+                        this.eventSource = null;
+                        this.status = 'setup';
+                        alert('Training error: ' + (data.message || 'Unknown error'));
+                    }
+                };
+                this.eventSource.onerror = () => {};
             },
 
             pauseTraining() {
                 this.status = 'paused';
-                clearInterval(this.interval);
+                fetch(`/api/train/pause/${this.jobId}`, {method: 'POST'}).catch(() => {});
             },
 
             resumeTraining() {
                 this.status = 'training';
-                this.simulateTraining();
+                fetch(`/api/train/resume/${this.jobId}`, {method: 'POST'}).catch(() => {});
             },
 
             saveModel() {
-                alert('Downloading Model Artifacts (.pt / .h5) ...');
+                if (this.jobId) window.location.href = `/api/train/download/${this.jobId}`;
             },
 
             exportCSV() {
@@ -688,39 +775,6 @@
                 a.click();
             },
 
-            simulateTraining() {
-                const total = parseInt(this.params.epochs);
-                this.interval = setInterval(() => {
-                    if (this.currentEpoch >= total) {
-                        this.status = 'completed';
-                        this.progress = 100;
-                        clearInterval(this.interval);
-                        if(window.dim3Sound) window.dim3Sound.play('switch');
-                        return;
-                    }
-                    this.currentEpoch++;
-                    this.progress = (this.currentEpoch / total) * 100;
-
-                    this.metrics.trainLoss = this.metrics.trainLoss * 0.95 + (Math.random() * 0.02 - 0.01);
-                    this.metrics.valLoss = this.metrics.valLoss * 0.96 + (Math.random() * 0.03 - 0.01);
-                    this.metrics.accuracy = Math.min(0.99, this.metrics.accuracy + ((1 - this.metrics.accuracy) * 0.1) + (Math.random() * 0.02 - 0.01));
-
-                    this.metrics.gpu = Math.min(24, Math.max(4, this.metrics.gpu + (Math.random() - 0.5) * 3));
-
-                    this.histories.trainLoss.push(Math.max(0, this.metrics.trainLoss));
-                    this.histories.valLoss.push(Math.max(0, this.metrics.valLoss));
-                    this.histories.accuracy.push(this.metrics.accuracy);
-                    this.histories.gpu.push(this.metrics.gpu);
-
-                    this.$nextTick(() => {
-                        if(this.$refs.g1) this.$refs.g1.scrollLeft = this.$refs.g1.scrollWidth;
-                        if(this.$refs.g2) this.$refs.g2.scrollLeft = this.$refs.g2.scrollWidth;
-                        if(this.$refs.g3) this.$refs.g3.scrollLeft = this.$refs.g3.scrollWidth;
-                        if(this.$refs.g4) this.$refs.g4.scrollLeft = this.$refs.g4.scrollWidth;
-                    });
-
-                }, 150);
-            }
         }
     }
 </script>
