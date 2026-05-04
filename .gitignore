@@ -226,6 +226,15 @@ __marimo__/
 *.gltf
 *.abc
 *.vdb
+*.OBJ
+*.STL
+*.PLY
+*.OFF
+*.FBX
+*.GLB
+*.GLTF
+*.ABC
+*.vVDB
 
 !data/fruit/*
 !data/fruit_objs/*
@@ -235,4 +244,3 @@ __marimo__/
 
 ./web_interface/dim3_engine/processed/*
 ./web_interface/dim3_engine/uploads/*
-./web_interface/dim3_engine/training_sessions/*
