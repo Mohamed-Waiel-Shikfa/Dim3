@@ -235,3 +235,4 @@ __marimo__/
 
 ./web_interface/dim3_engine/processed/*
 ./web_interface/dim3_engine/uploads/*
+./web_interface/dim3_engine/training_sessions/*
