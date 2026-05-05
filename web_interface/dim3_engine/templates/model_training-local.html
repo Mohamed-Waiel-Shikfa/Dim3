@@ -1,0 +1,796 @@
+<div id="navbar-tools" hx-swap-oob="true" class="flex items-center gap-4 h-full">
+    <span class="text-xs text-[var(--accent)] font-bold uppercase tracking-wider">Training Mode</span>
+</div>
+
+<div class="w-full h-full flex" x-data="trainingController()" x-init="$nextTick(() => resetSetup())">
+
+    <!-- Model name modal -->
+    <div x-show="showNameModal" x-transition.opacity class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center" style="display:none;">
+        <div class="bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-2xl p-8 w-[380px] shadow-2xl flex flex-col gap-5">
+            <h3 class="text-lg font-black text-[var(--accent)] uppercase tracking-widest [text-shadow:var(--text-glow)]">Name Your Model</h3>
+            <input type="text" x-model="modelName" @keyup.enter="confirmSave()" @keyup.escape="showNameModal=false"
+                   class="bg-black/60 border border-[var(--accent-dim)] rounded-xl px-4 py-3 text-white font-mono text-sm outline-none focus:border-[var(--accent)] transition-colors"
+                   placeholder="my_model" x-ref="nameInput">
+            <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest -mt-2">Downloads as <span class="text-slate-300" x-text="(modelName||'my_model').replace(/[^a-zA-Z0-9_-]/g,'_') + '.zip'"></span></p>
+            <div class="flex gap-3 justify-end">
+                <button @click="showNameModal=false" class="text-slate-500 hover:text-white px-4 py-2 rounded-lg font-bold uppercase text-xs tracking-wider transition-colors">Cancel</button>
+                <button @click="confirmSave()" class="bg-[var(--accent)] text-[var(--bg-panel)] px-6 py-2 rounded-lg font-black uppercase text-xs tracking-wider hover:brightness-110 transition-all shadow-[var(--text-glow)]">Download</button>
+            </div>
+        </div>
+    </div>
+    <div class="flex-1 w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl p-10 flex flex-col transition-all duration-500 relative overflow-hidden shadow-2xl">
+        <div class="absolute inset-0 bg-[var(--accent)] opacity-[0.02] blur-[120px] pointer-events-none"></div>
+
+        <div x-show="status === 'setup'" x-transition.opacity.duration.400ms class="flex-1 flex flex-col h-full overflow-hidden relative z-10">
+            <h2 class="text-4xl font-black text-[var(--accent)] tracking-tight mb-6 [text-shadow:var(--text-glow)] shrink-0">Configure Training</h2>
+
+            <div class="flex gap-8 flex-1 overflow-hidden">
+
+                <div class="flex-[2] flex flex-col gap-6 pr-2 pb-2 overflow-y-auto hide-scrollbar">
+                    <div class="bg-black/20 border border-[var(--accent-dim)] rounded-2xl p-5 flex flex-col flex-1">
+                        <div class="flex gap-4 items-stretch flex-1 min-h-[10rem]">
+                            <div class="flex-[2] border-r border-white/10 pr-4 flex flex-col items-center justify-center relative group">
+                                <svg class="w-10 h-10 text-[var(--accent)] mb-3 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
+                                <div class="text-xs font-black text-slate-300 uppercase tracking-widest text-center" x-text="datasetStats.totalFiles > 0 ? datasetStats.totalFiles + ' Files Loaded' : 'Load Dataset Directory'"></div>
+                                <input type="file" webkitdirectory directory multiple class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" @change="handleDataset($event)">
+                            </div>
+
+                            <div class="flex-[2] pl-2 overflow-y-auto hide-scrollbar flex flex-col relative">
+                                <div class="sticky top-0 bg-[var(--bg-panel)] z-10 pb-2 mb-2 border-b border-white/10">
+                                    <div class="text-[10px] font-black text-[var(--accent)] uppercase tracking-widest">
+                                        Total Classes: <span x-text="datasetStats.totalClasses"></span>
+                                    </div>
+                                </div>
+                                <template x-if="datasetStats.totalClasses === 0">
+                                    <div class="flex-1 flex items-center justify-center text-[10px] text-slate-500 uppercase font-mono tracking-widest text-center mt-2">No Labels Detected</div>
+                                </template>
+                                <template x-for="(count, cls) in datasetStats.classes" :key="cls">
+                                    <div class="flex justify-between text-[10px] uppercase font-mono text-slate-400 mb-1 px-1">
+                                        <span x-text="cls"></span>
+                                        <span x-text="count" class="text-white"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 pt-4 border-t border-[var(--accent-dim)] flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <label class="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Random Rotations per File</label>
+                                <input type="text" x-model="params.rotations" @wheel.prevent="scrollParam($event, params, 'rotations', 1, 50, 1)" class="bg-black/40 border border-white/5 rounded px-2 py-1 text-[var(--accent)] text-xs font-mono font-bold w-12 text-center outline-none focus:border-[var(--accent)]">
+                            </div>
+                            <div class="text-[10px] text-slate-500 font-mono uppercase font-bold tracking-wider">
+                                Total Training Set Size: <span class="text-white text-sm ml-1" x-text="datasetStats.totalFiles * (parseInt(params.rotations) || 0)"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-black/20 border border-[var(--accent-dim)] rounded-2xl p-5 flex flex-col gap-4 shrink-0">
+
+                        <div class="flex items-end gap-3 w-full">
+                            <div class="flex flex-col gap-1 w-[160px] shrink-0">
+                                <label class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Architecture Base</label>
+                                <div x-data="{ menuOpen: false }" class="relative h-[36px] w-full rounded-xl bg-black/60 border border-white/10 shadow-inner transition-all duration-300 z-50"
+                                     :class="menuOpen ? 'overflow-visible' : 'overflow-hidden'"
+                                     @mouseenter="menuOpen = true" @mouseleave="menuOpen = false"
+                                     @wheel.prevent="scrollDropdown($event, 'modelIndex', models.length)">
+                                     <div class="absolute top-0 left-0 w-full rounded-xl transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+                                          :class="menuOpen ? 'bg-[var(--bg-panel)] border border-[var(--accent-dim)] shadow-[0_10px_40px_var(--bg-base)]' : 'border border-transparent'"
+                                          :style="'transform: translateY(calc(-36px * ' + modelIndex + '));'">
+                                          <template x-for="(model, index) in models" :key="index">
+                                               <div class="h-[36px] flex items-center px-3 cursor-pointer transition-colors duration-300"
+                                                    @click="modelIndex = index; menuOpen = false"
+                                                    :class="modelIndex === index ? 'text-[var(--accent)] [text-shadow:var(--text-glow)] font-bold' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'">
+                                                   <span x-text="model" class="tracking-wide text-[10px] uppercase font-black truncate"></span>
+                                               </div>
+                                          </template>
+                                     </div>
+                                </div>
+                            </div>
+
+                            <template x-if="modelIndex === 0 || modelIndex === 1">
+                                <div class="flex flex-col gap-1 flex-1">
+                                    <label class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1 truncate" x-text="modelIndex === 0 ? 'Grid Size' : 'Point Count'"></label>
+                                    <input type="text" x-model="params.archParam" @wheel.prevent="scrollParam($event, params, 'archParam', 4, 16384, modelIndex === 0 ? 4 : 256)" class="bg-black/60 border border-[var(--accent-dim)] rounded-xl px-2 py-2 text-white outline-none focus:border-[var(--accent)] text-center transition-colors text-[10px] font-mono font-bold h-[36px] shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
+                                </div>
+                            </template>
+
+                            <template x-if="modelIndex === 1">
+                                <div class="flex flex-col gap-1 flex-1">
+                                    <label class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1 truncate">Sampling Method</label>
+                                    <div x-data="{ menuOpen: false }" class="relative h-[36px] w-full rounded-xl bg-black/60 border border-white/10 shadow-inner transition-all duration-300 z-50"
+                                         :class="menuOpen ? 'overflow-visible' : 'overflow-hidden'"
+                                         @mouseenter="menuOpen = true" @mouseleave="menuOpen = false"
+                                         @wheel.prevent="scrollDropdown($event, 'samplingIndex', samplingMethodsList.length)">
+                                         <div class="absolute top-0 left-0 w-full rounded-xl transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+                                              :class="menuOpen ? 'bg-[var(--bg-panel)] border border-[var(--accent-dim)] shadow-[0_10px_40px_var(--bg-base)]' : 'border border-transparent'"
+                                              :style="'transform: translateY(calc(-36px * ' + samplingIndex + '));'">
+                                              <template x-for="(method, index) in samplingMethodsList" :key="index">
+                                                   <div class="h-[36px] flex items-center px-2 cursor-pointer transition-colors duration-300"
+                                                        @click="samplingIndex = index; menuOpen = false"
+                                                        :class="samplingIndex === index ? 'text-[var(--accent)] [text-shadow:var(--text-glow)] font-bold' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'">
+                                                       <span x-text="method" class="tracking-wide text-[9px] uppercase font-black truncate"></span>
+                                                   </div>
+                                              </template>
+                                         </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <div class="grid grid-cols-2 grid-rows-2 gap-4">
+                            <div class="flex flex-col gap-1">
+                                <label class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Epochs</label>
+                                <input type="text" x-model="params.epochs" @wheel.prevent="scrollParam($event, params, 'epochs', 1, 1000, 1)" class="bg-black/40 border border-white/5 rounded-lg px-4 py-2 text-white outline-none focus:border-[var(--accent)] transition-colors text-xs font-mono h-[36px]">
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <label class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Batch Size</label>
+                                <input type="text" x-model="params.batchSize" @wheel.prevent="scrollParam($event, params, 'batchSize', 1, 512, 8)" class="bg-black/40 border border-white/5 rounded-lg px-4 py-2 text-white outline-none focus:border-[var(--accent)] transition-colors text-xs font-mono h-[36px]">
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <label class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Momentum</label>
+                                <input type="text" x-model="params.momentum" @wheel.prevent="scrollParam($event, params, 'momentum', 0, 1, 0.05)" class="bg-black/40 border border-white/5 rounded-lg px-4 py-2 text-white outline-none focus:border-[var(--accent)] transition-colors text-xs font-mono h-[36px]">
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <label class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Learning Rate</label>
+                                <input type="text" x-model="params.lr" @wheel.prevent="scrollParam($event, params, 'lr', 0.0001, 0.1, 0.0005)" class="bg-black/40 border border-white/5 rounded-lg px-4 py-2 text-white outline-none focus:border-[var(--accent)] transition-colors text-xs font-mono h-[36px]">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="flex flex-col gap-1">
+                                <label class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Loss Function</label>
+                                <div x-data="{ menuOpen: false }" class="relative h-[36px] w-full rounded-xl bg-black/40 border border-white/5 shadow-inner transition-all duration-300 z-40"
+                                     :class="menuOpen ? 'overflow-visible' : 'overflow-hidden'"
+                                     @mouseenter="menuOpen = true" @mouseleave="menuOpen = false"
+                                     @wheel.prevent="scrollDropdown($event, 'lossIndex', lossFunctions.length)">
+                                     <div class="absolute top-0 left-0 w-full rounded-xl transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+                                          :class="menuOpen ? 'bg-[var(--bg-panel)] border border-[var(--accent-dim)] shadow-[0_10px_40px_var(--bg-base)]' : 'border border-transparent'"
+                                          :style="'transform: translateY(calc(-36px * ' + lossIndex + '));'">
+                                          <template x-for="(loss, index) in lossFunctions" :key="index">
+                                               <div class="h-[36px] flex items-center px-3 cursor-pointer transition-colors duration-300"
+                                                    @click="lossIndex = index; menuOpen = false"
+                                                    :class="lossIndex === index ? 'text-[var(--accent)] [text-shadow:var(--text-glow)] font-bold' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'">
+                                                   <span x-text="loss" class="tracking-wide text-[10px] uppercase font-black"></span>
+                                               </div>
+                                          </template>
+                                     </div>
+                                </div>
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <label class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Validation Split (%)</label>
+                                <input type="text" x-model="params.valSplit" @wheel.prevent="scrollParam($event, params, 'valSplit', 0, 50, 5)" class="bg-black/40 border border-white/5 rounded-lg px-4 py-2 text-white outline-none focus:border-[var(--accent)] transition-colors text-xs font-mono h-[36px]">
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="flex-[3] bg-[#00000040] border border-[var(--accent-dim)] shadow-[inset_0_0_40px_rgba(0,0,0,0.8)] rounded-2xl p-4 flex flex-col overflow-hidden relative">
+                    <div class="flex justify-between items-center mb-4 shrink-0 relative">
+                        <div>
+                            <h3 class="text-xl font-bold text-white tracking-wide uppercase">Architecture Graph</h3>
+                            <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mt-1">Design network topology</p>
+                        </div>
+
+<div class="flex gap-2">
+                            <button @click="addLayer('Conv3D')" class="bg-black/60 border border-white/10 text-slate-300 hover:text-[var(--accent)] hover:border-[var(--accent)] px-3 py-1 rounded text-[10px] font-black uppercase tracking-wider transition-all">+ Conv</button>
+                            <button @click="addLayer('MaxPool')" class="bg-black/60 border border-white/10 text-slate-300 hover:text-[var(--accent)] hover:border-[var(--accent)] px-3 py-1 rounded text-[10px] font-black uppercase tracking-wider transition-all">+ Pool</button>
+                            <button @click="addLayer('Linear')" class="bg-black/60 border border-white/10 text-slate-300 hover:text-[var(--accent)] hover:border-[var(--accent)] px-3 py-1 rounded text-[10px] font-black uppercase tracking-wider transition-all">+ Linear</button>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 overflow-x-auto overflow-y-auto hide-scrollbar flex items-start border border-white/5 rounded-xl bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+PGNpcmNsZSBjeD0iMSIgY3k9IjEiIHI9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz48L3N2Zz4=')]">
+                        <div class="flex flex-row items-start p-4 mt-4 min-w-max">
+
+                            <div class="flex flex-col items-center w-[80px]">
+                                <div class="h-[300px] w-full relative">
+                                    <template x-for="y in getNodeYPositions(inputNodes)">
+                                        <div class="absolute w-2 h-2 bg-white/30 border border-white/60 rounded-full left-1/2 shadow-[0_0_8px_rgba(255,255,255,0.2)]" :style="`top: ${y}px; transform: translate(-50%, -50%);`"></div>
+                                    </template>
+                                    <template x-if="inputNodes > 32">
+                                        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2">
+                                            <div class="w-1.5 h-1.5 bg-white/40 rounded-full"></div>
+                                            <div class="w-1.5 h-1.5 bg-white/40 rounded-full"></div>
+                                            <div class="w-1.5 h-1.5 bg-white/40 rounded-full"></div>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Input</div>
+                                <div class="text-xs text-white font-mono" x-text="modelIndex === 2 ? 'Graph' : inputNodes"></div>
+                            </div>
+
+                            <template x-for="(layer, index) in layers" :key="layer.id">
+                                <div class="flex items-start">
+
+                                    <div class="w-12 h-[300px] shrink-0 pointer-events-none"></div>
+
+                                    <div class="flex flex-col items-center w-[110px]">
+                                        <div class="h-[300px] w-full relative">
+                                            <template x-for="y in getNodeYPositions(layer.nodes)">
+                                                <div class="absolute w-2 h-2 bg-[var(--accent)] rounded-full left-1/2 shadow-[0_0_8px_var(--accent)]" :style="`top: ${y}px; transform: translate(-50%, -50%);`"></div>
+                                            </template>
+                                            <template x-if="layer.nodes > 32">
+                                                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2">
+                                                    <div class="w-1.5 h-1.5 bg-[var(--accent)] opacity-60 rounded-full"></div>
+                                                    <div class="w-1.5 h-1.5 bg-[var(--accent)] opacity-60 rounded-full"></div>
+                                                    <div class="w-1.5 h-1.5 bg-[var(--accent)] opacity-60 rounded-full"></div>
+                                                </div>
+                                            </template>
+                                        </div>
+
+                                        <div class="mt-4 flex flex-col items-center w-full px-2 gap-2 bg-black/60 p-2 rounded-xl border border-white/5 relative z-20">
+                                            <div class="text-[9px] font-black text-[var(--accent)] uppercase tracking-widest text-center" x-text="layer.type"></div>
+
+                                            <div class="flex justify-between items-center w-full px-1">
+                                                <button @click="moveLayer(index, -1)" :disabled="index === 0" class="text-slate-500 hover:text-white disabled:opacity-20"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path></svg></button>
+                                                <input type="text" x-model="layer.nodes" @wheel.prevent="scrollParam($event, layer, 'nodes', 1, 4096, 16)" class="bg-transparent text-white text-[10px] font-mono w-10 text-center outline-none border-b border-white/20 focus:border-[var(--accent)]">
+                                                <button @click="moveLayer(index, 1)" :disabled="index === layers.length - 1" class="text-slate-500 hover:text-white disabled:opacity-20"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg></button>
+                                            </div>
+
+                                            <div x-data="{ menuOpen: false }" class="relative h-[28px] w-full rounded-lg bg-black/40 border border-white/10 shadow-inner transition-all duration-300 z-50"
+                                                 :class="menuOpen ? 'overflow-visible' : 'overflow-hidden'"
+                                                 @mouseenter="menuOpen = true" @mouseleave="menuOpen = false"
+                                                 @wheel.prevent="scrollDropdown($event, 'actIndex', activations.length, layer)">
+                                                 <div class="absolute top-0 left-0 w-full rounded-lg transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] bg-[var(--bg-panel)] border"
+                                                      :class="menuOpen ? 'border-[var(--accent-dim)] shadow-[0_10px_40px_var(--bg-base)]' : 'border-transparent bg-transparent'"
+                                                      :style="'transform: translateY(calc(-28px * ' + layer.actIndex + '));'">
+                                                      <template x-for="(act, aIndex) in activations" :key="aIndex">
+                                                           <div class="h-[28px] flex justify-center items-center px-1 cursor-pointer transition-colors duration-300"
+                                                                @click="layer.actIndex = aIndex; menuOpen = false"
+                                                                :class="layer.actIndex === aIndex ? 'text-[var(--accent)] [text-shadow:var(--text-glow)] font-bold' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'">
+                                                               <span x-text="act" class="tracking-wide text-[9px] uppercase font-black truncate"></span>
+                                                           </div>
+                                                      </template>
+                                                 </div>
+                                            </div>
+
+                                            <button @click="layers.splice(index, 1)" class="text-red-500/50 hover:text-red-400 transition-colors">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <div class="flex items-start pr-8">
+                                <div class="w-12 h-[300px] shrink-0 pointer-events-none"></div>
+
+                                <div class="flex flex-col items-center w-[80px]">
+                                    <div class="h-[300px] w-full relative">
+                                        <template x-for="y in getNodeYPositions(outputNodes)">
+                                            <div class="absolute w-2.5 h-2.5 bg-emerald-400 rounded-full shadow-[0_0_12px_rgba(52,211,153,0.6)] left-1/2" :style="`top: ${y}px; transform: translate(-50%, -50%);`"></div>
+                                        </template>
+                                        <template x-if="outputNodes > 32">
+                                            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2">
+                                                <div class="w-1.5 h-1.5 bg-emerald-400 opacity-60 rounded-full"></div>
+                                                <div class="w-1.5 h-1.5 bg-emerald-400 opacity-60 rounded-full"></div>
+                                                <div class="w-1.5 h-1.5 bg-emerald-400 opacity-60 rounded-full"></div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                    <div class="mt-4 text-[10px] font-black text-emerald-400 uppercase tracking-widest">Output</div>
+                                    <div class="text-xs text-white font-mono" x-text="outputNodes + ' Cls'"></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end shrink-0">
+                <button @click="startTraining()" :disabled="datasetStats.totalFiles === 0 || layers.length === 0" class="bg-[var(--accent)] text-[var(--bg-panel)] px-10 py-3 rounded-xl font-black uppercase tracking-widest hover:scale-105 transition-transform disabled:opacity-50 disabled:hover:scale-100 shadow-[var(--text-glow)]">
+                    Launch Training
+                </button>
+            </div>
+        </div>
+
+        <div x-show="status !== 'setup'" x-transition class="flex-1 flex flex-col h-full relative z-10" style="display: none;">
+
+            <div class="flex justify-between items-center mb-6 pb-4 border-b border-[var(--accent-dim)] shrink-0">
+                <div>
+                    <h2 class="text-3xl font-black text-[var(--accent)] tracking-tight [text-shadow:var(--text-glow)] flex items-center gap-4">
+                        Training Dashboard
+                        <button @click="exportCSV()" title="Export metrics to CSV" class="text-slate-400 hover:text-[var(--accent)] transition-colors p-2 bg-black/40 rounded-lg border border-white/10 hover:border-[var(--accent)] group relative">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        </button>
+                    </h2>
+                    <div class="text-sm text-slate-400 font-bold uppercase tracking-wider mt-1">Status: <span x-text="status" class="text-white"></span></div>
+                </div>
+                <div class="flex gap-4 text-xs font-mono text-slate-400 bg-black/30 p-2 rounded-xl border border-white/5">
+                    <span class="px-2">Arch: <span x-text="models[modelIndex]" class="text-white"></span></span>
+                    <span class="px-2 border-l border-white/10">Loss: <span x-text="lossFunctions[lossIndex]" class="text-white"></span></span>
+                    <span class="px-2 border-l border-white/10">Epochs: <span x-text="params.epochs" class="text-white"></span></span>
+                    <span class="px-2 border-l border-white/10">Batch: <span x-text="params.batchSize" class="text-white"></span></span>
+                    <span class="px-2 border-l border-white/10">LR: <span x-text="params.lr" class="text-white"></span></span>
+                </div>
+            </div>
+
+            <div class="flex-1 grid grid-cols-2 grid-rows-2 gap-4 mb-6 overflow-hidden">
+
+                <div class="bg-black/30 rounded-2xl border border-[var(--accent-dim)] p-4 flex flex-col relative overflow-hidden">
+                    <div class="flex justify-between items-center z-10 mb-2 shrink-0">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Training Loss</span>
+                        <span class="text-xl font-black text-[var(--accent)]" x-text="metrics.trainLoss.toFixed(4)"></span>
+                    </div>
+                    <div class="flex-1 flex items-end gap-[2px] z-10 overflow-x-auto overflow-y-hidden hide-scrollbar scroll-smooth" x-ref="g1">
+                        <template x-for="(val, i) in histories.trainLoss" :key="i">
+                            <div class="w-[6px] shrink-0 bg-[var(--accent)] opacity-70 rounded-t-sm transition-all" :style="`height: ${(val / 2.0)*100}%`"></div>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="bg-black/30 rounded-2xl border border-[var(--accent-dim)] p-4 flex flex-col relative overflow-hidden">
+                    <div class="flex justify-between items-center z-10 mb-2 shrink-0">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Training Accuracy</span>
+                        <span class="text-xl font-black text-white" x-text="(metrics.accuracy * 100).toFixed(1) + '%'"></span>
+                    </div>
+                    <div class="flex-1 flex items-end gap-[2px] z-10 overflow-x-auto overflow-y-hidden hide-scrollbar scroll-smooth" x-ref="g2">
+                        <template x-for="(val, i) in histories.accuracy" :key="i">
+                            <div class="w-[6px] shrink-0 bg-white opacity-50 rounded-t-sm transition-all" :style="`height: ${val*100}%`"></div>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="bg-black/30 rounded-2xl border border-[var(--accent-dim)] p-4 flex flex-col relative overflow-hidden">
+                    <div class="flex justify-between items-center z-10 mb-2 shrink-0">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Validation Loss</span>
+                        <span class="text-xl font-black text-red-400" x-text="metrics.valLoss.toFixed(4)"></span>
+                    </div>
+                    <div class="flex-1 flex items-end gap-[2px] z-10 overflow-x-auto overflow-y-hidden hide-scrollbar scroll-smooth" x-ref="g3">
+                        <template x-for="(val, i) in histories.valLoss" :key="i">
+                            <div class="w-[6px] shrink-0 bg-red-400 opacity-70 rounded-t-sm transition-all" :style="`height: ${(val / 2.0)*100}%`"></div>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="bg-black/30 rounded-2xl border border-[var(--accent-dim)] p-4 flex flex-col relative overflow-hidden">
+                    <div class="flex justify-between items-center z-10 mb-2 shrink-0">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">RAM Usage</span>
+                        <span class="text-xl font-black text-purple-400 font-mono" x-text="(metrics.gpu * 1000).toFixed(0) + ' MB'"></span>
+                    </div>
+                    <div class="flex-1 flex items-end gap-[2px] z-10 overflow-x-auto overflow-y-hidden hide-scrollbar scroll-smooth" x-ref="g4">
+                        <template x-for="(val, i) in histories.gpu" :key="i">
+                            <div class="w-[6px] shrink-0 bg-purple-500 opacity-60 rounded-t-sm transition-all" :style="`height: ${(val / 24)*100}%`"></div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            <div class="w-full h-2 bg-black/60 rounded-full overflow-hidden shrink-0 mb-6 border border-white/5">
+                <div class="h-full bg-[var(--accent)] shadow-[var(--text-glow)] transition-all duration-300" :style="`width: ${progress}%`"></div>
+            </div>
+
+            <div class="flex justify-between items-center shrink-0 h-12">
+
+                <div x-show="['training','paused','uploading','extracting'].includes(status)" class="flex gap-4 w-full">
+                    <div class="flex gap-4 items-center">
+                        <div x-show="status === 'uploading' || status === 'extracting'" class="border border-[var(--accent)] text-[var(--accent)] px-6 py-2 rounded-lg font-bold uppercase tracking-wider opacity-60 text-xs" x-text="status === 'uploading' ? 'Uploading...' : 'Extracting features...'"></div>
+                        <button x-show="status === 'training'" @click="pauseTraining()" class="border border-[var(--accent)] text-[var(--accent)] px-6 py-2 rounded-lg font-bold uppercase tracking-wider hover:bg-[var(--accent)] hover:text-[var(--bg-panel)] transition-colors">
+                            Pause
+                        </button>
+                        <button x-show="status === 'paused'" @click="resumeTraining()" class="bg-[var(--accent)] text-[var(--bg-panel)] px-6 py-2 rounded-lg font-bold uppercase tracking-wider hover:brightness-110 transition-colors shadow-[var(--text-glow)]">
+                            Resume
+                        </button>
+                        <button @click="resetSetup()" class="text-slate-500 hover:text-red-500 px-6 py-2 rounded-lg font-bold uppercase tracking-wider transition-colors">
+                            Cancel
+                        </button>
+                    </div>
+                    <div class="ml-auto flex items-center text-slate-400 font-mono text-sm">
+                        Epoch <span class="text-white mx-2 text-xl" x-text="currentEpoch"></span> / <span x-text="params.epochs" class="ml-1"></span>
+                    </div>
+                </div>
+
+                <div x-show="status === 'completed'" class="flex justify-between items-center w-full" style="display:none;">
+                    <button @click="resetSetup()" class="text-slate-500 border border-slate-500 px-8 py-3 rounded-xl font-black uppercase tracking-wider hover:bg-slate-500 hover:text-white transition-colors shadow-lg">
+                        Back to Configuration
+                    </button>
+                    <button @click="saveModel()" class="bg-[var(--accent)] text-[var(--bg-panel)] px-8 py-3 rounded-xl font-black uppercase tracking-widest shadow-[var(--text-glow)] hover:scale-105 transition-transform">
+                        Save Model
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+</div>
+
+<style>
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+</style>
+
+<script>
+    function trainingController() {
+        return {
+            status: 'setup',
+
+            datasetStats: {
+                totalFiles: 0,
+                totalClasses: 0,
+                classes: {}
+            },
+
+            models: ['3D CNN (Voxel)', 'PointNet (Cloud)', 'GNN (Graph)'],
+            modelIndex: 0,
+
+            lossFunctions: ['CrossEntropyLoss', 'MSELoss', 'NLLLoss'],
+            lossIndex: 0,
+
+            samplingMethodsList: ['Farthest Point', 'Poisson Disk', 'Curvature Based'],
+            samplingIndex: 0,
+
+            activations: ['ReLU', 'LeakyReLU', 'Sigmoid', 'Tanh', 'Softmax', 'None'],
+
+            params: {
+                archParam: '32',
+                epochs: '100',
+                batchSize: '32',
+                momentum: '0.90',
+                lr: '0.0010',
+                rotations: '3',
+                valSplit: '20'
+            },
+
+            layerCounter: 0,
+            layers: [
+                { id: 1, type: 'Conv3D', nodes: '64', actIndex: 0 },
+                { id: 2, type: 'MaxPool', nodes: '32', actIndex: 5 },
+                { id: 3, type: 'Linear', nodes: '128', actIndex: 0 }
+            ],
+
+            progress: 0,
+            currentEpoch: 0,
+            eventSource: null,
+            jobId: null,
+            files: [],
+            showNameModal: false,
+            modelName: 'my_model',
+            scrollAccumulators: {},
+
+            metrics: {
+                trainLoss: 1.8,
+                valLoss: 1.9,
+                accuracy: 0.1,
+                gpu: 8.4
+            },
+
+            histories: {
+                trainLoss: [],
+                valLoss: [],
+                accuracy: [],
+                gpu: []
+            },
+
+            get inputNodes() {
+                if (this.modelIndex === 0) {
+                    let gs = parseInt(this.params.archParam) || 32;
+                    return gs * gs * gs; // 3D Grid -> x cubed
+                } else if (this.modelIndex === 1) {
+                    return parseInt(this.params.archParam) || 1024;
+                } else {
+                    return 8; // Conceptual representation for GNN
+                }
+            },
+
+            get outputNodes() {
+                return this.datasetStats.totalClasses || 4;
+            },
+
+            get totalParameters() {
+                try {
+                    let total = 0;
+                    let cur = 0;       // current dimension flowing through layers
+                    let isFlattened = false;
+
+                    if (this.modelIndex === 0) {
+                        // CNN: starts in conv-space; cur tracks channels, spatial tracked separately
+                        let channels = 1;
+                        let spatial = parseInt(this.params.archParam) || 32;
+
+                        for (let layer of this.layers) {
+                            let n = parseInt(layer.nodes) || 1;
+                            if (layer.type === 'Conv3D' && !isFlattened) {
+                                total += (channels * 27 * n) + n;  // 3x3x3 kernel + bias
+                                channels = n;
+                            } else if (layer.type === 'MaxPool' && !isFlattened) {
+                                spatial = Math.max(1, Math.floor(spatial / 2));
+                            } else if (layer.type === 'Linear') {
+                                if (!isFlattened) {
+                                    cur = channels * spatial * spatial * spatial;
+                                    isFlattened = true;
+                                }
+                                total += (cur * n) + n;
+                                cur = n;
+                            }
+                        }
+                        if (!isFlattened) cur = channels * spatial * spatial * spatial;
+
+                    } else if (this.modelIndex === 1) {
+                        // PointNet: actual input = 26 statistical features (fixed)
+                        cur = 26;
+                        for (let layer of this.layers) {
+                            let n = parseInt(layer.nodes) || 1;
+                            total += (cur * n) + n;
+                            cur = n;
+                        }
+
+                    } else {
+                        // GNN: actual input = 16 graph topology features (fixed)
+                        cur = 16;
+                        for (let layer of this.layers) {
+                            let n = parseInt(layer.nodes) || 1;
+                            total += (cur * n) + n;
+                            cur = n;
+                        }
+                    }
+
+                    // Output layer
+                    let outN = this.outputNodes || 4;
+                    total += (cur * outN) + outN;
+
+                    if (isNaN(total)) return '--';
+                    if (total >= 1000000) return (total / 1000000).toFixed(2) + ' M';
+                    if (total >= 1000) return (total / 1000).toFixed(1) + ' K';
+                    return total.toLocaleString();
+                } catch(e) {
+                    return '--';
+                }
+            },
+
+            resetSetup() {
+                if (this.jobId) fetch(`/api/train/stop/${this.jobId}`, {method: 'POST'}).catch(() => {});
+                if (this.eventSource) { this.eventSource.close(); this.eventSource = null; }
+                this.jobId = null;
+                this.status = 'setup';
+                this.progress = 0;
+                this.currentEpoch = 0;
+                this.histories = { trainLoss: [], valLoss: [], accuracy: [], gpu: [] };
+                this.metrics = { trainLoss: 1.8, valLoss: 1.9, accuracy: 0.1, gpu: 0 };
+            },
+
+            handleDataset(e) {
+                const IGNORE = /^\.|thumbs\.db$/i;
+                let files = Array.from(e.target.files).filter(f => !IGNORE.test(f.name));
+                this.files = files;
+                this.datasetStats.totalFiles = files.length;
+                let classCounts = {};
+
+                files.forEach(f => {
+                    const rel = f.webkitRelativePath || f.name;
+                    const parts = rel.split('/');
+                    let cls;
+                    if (parts.length >= 3) {
+                        cls = parts[1].toLowerCase();
+                    } else {
+                        const stem = parts[parts.length - 1].replace(/\.[^.]+$/, '');
+                        const m = stem.match(/^([a-zA-Z]+)/);
+                        cls = m ? m[1].toLowerCase() : 'unlabeled';
+                    }
+                    classCounts[cls] = (classCounts[cls] || 0) + 1;
+                });
+
+                this.datasetStats.classes = classCounts;
+                this.datasetStats.totalClasses = Object.keys(classCounts).length;
+                if(window.dim3Sound) window.dim3Sound.play('tick');
+            },
+
+            scrollParam(event, obj, key, min, max, step) {
+                if (!this.scrollAccumulators) this.scrollAccumulators = {};
+                this.scrollAccumulators[key] = (this.scrollAccumulators[key] || 0) + event.deltaY;
+
+                const SCROLL_THRESHOLD = 40;
+
+                if (Math.abs(this.scrollAccumulators[key]) >= SCROLL_THRESHOLD) {
+                    let direction = Math.sign(this.scrollAccumulators[key]);
+                    let val = parseFloat(obj[key] || 0);
+                    val -= direction * step;
+                    val = Math.max(min, Math.min(max, val));
+
+                    if (step % 1 !== 0) {
+                        let decimals = step.toString().split('.')[1]?.length || 4;
+                        obj[key] = val.toFixed(decimals);
+                    } else {
+                        obj[key] = Math.round(val).toString();
+                    }
+
+                    this.scrollAccumulators[key] = 0;
+                    if(window.dim3Sound) window.dim3Sound.play('tick');
+                }
+            },
+
+            scrollDropdown(event, key, maxLen, targetObj = this) {
+                if (!this.scrollAccumulators) this.scrollAccumulators = {};
+                let accumKey = targetObj.id ? `drop_${targetObj.id}_${key}` : `drop_${key}`;
+                this.scrollAccumulators[accumKey] = (this.scrollAccumulators[accumKey] || 0) + event.deltaY;
+
+                const SCROLL_THRESHOLD = 50;
+
+                if (Math.abs(this.scrollAccumulators[accumKey]) >= SCROLL_THRESHOLD) {
+                    let direction = Math.sign(this.scrollAccumulators[accumKey]);
+                    let next = targetObj[key] + direction;
+                    if (next >= 0 && next < maxLen) {
+                        targetObj[key] = next;
+                        if(window.dim3Sound) window.dim3Sound.play('tick');
+                    }
+                    this.scrollAccumulators[accumKey] = 0;
+                }
+            },
+
+            addLayer(type) {
+                this.layerCounter++;
+                const base = { id: Date.now() + this.layerCounter, type: type, actIndex: 0 };
+                if(type === 'Linear') { base.nodes = '128'; }
+                if(type === 'Conv3D') { base.nodes = '64'; }
+                if(type === 'MaxPool') { base.nodes = '32'; base.actIndex = 5; }
+                this.layers.push(base);
+                if(window.dim3Sound) window.dim3Sound.play('tick');
+            },
+
+            moveLayer(index, direction) {
+                let target = index + direction;
+                if(target < 0 || target >= this.layers.length) return;
+                let temp = this.layers[index];
+                this.layers[index] = this.layers[target];
+                this.layers[target] = temp;
+                if(window.dim3Sound) window.dim3Sound.play('tick');
+            },
+
+            getNodeYPositions(countStr) {
+                let count = parseInt(countStr) || 1;
+                let positions = [];
+
+                if (count > 32) {
+                    let nodeH = 8;
+                    let gap = 6;
+                    let ellipsesGap = 70;
+                    let blockHeight = 8 * nodeH + 6 * gap + ellipsesGap;
+                    let topOffset = (300 - blockHeight) / 2;
+
+                    let currentY = topOffset;
+                    for (let i = 0; i < 8; i++) {
+                        if (i === 4) currentY += ellipsesGap;
+                        positions.push(currentY + (nodeH/2));
+                        currentY += nodeH + gap;
+                    }
+                } else {
+                    let nodeH = 8;
+                    let gap = Math.min(6, (300 - count * nodeH) / (count + 1));
+                    let blockHeight = count * nodeH + (count - 1) * gap;
+                    let topOffset = (300 - blockHeight) / 2;
+
+                    let currentY = topOffset;
+                    for (let i = 0; i < count; i++) {
+                        positions.push(currentY + (nodeH/2));
+                        currentY += nodeH + gap;
+                    }
+                }
+                return positions;
+            },
+
+            async startTraining() {
+                if (!this.files || this.files.length === 0) return;
+                this.status = 'uploading';
+                this.progress = 0;
+                this.currentEpoch = 0;
+                this.histories = { trainLoss: [], valLoss: [], accuracy: [], gpu: [] };
+                this.metrics = { trainLoss: 0, valLoss: 0, accuracy: 0, gpu: 0 };
+                if(window.dim3Sound) window.dim3Sound.play('switch');
+                try {
+                    const fd = new FormData();
+                    // Send webkitRelativePath as filename so backend can derive class from directory name
+                    this.files.forEach(f => fd.append('files', f, f.webkitRelativePath || f.name));
+                    const upResp = await fetch('/api/train/upload', {method: 'POST', body: fd});
+                    if (!upResp.ok) throw new Error(`Upload failed: ${upResp.status}`);
+                    const upData = await upResp.json();
+                    this.jobId = upData.job_id;
+
+                    this.status = 'extracting';
+                    const modelTypes = ['cnn', 'pointnet', 'gnn'];
+                    const samplingMethods = ['fps', 'poisson', 'curvature'];
+                    const lossFnNames = ['CrossEntropyLoss', 'MSELoss', 'NLLLoss'];
+                    const config = {
+                        job_id:          this.jobId,
+                        model_type:      modelTypes[this.modelIndex],
+                        arch_param:      parseInt(this.params.archParam) || 32,
+                        sampling_method: samplingMethods[this.samplingIndex],
+                        layers:          this.layers.map(l => ({type: l.type, nodes: parseInt(l.nodes) || 64, actIndex: l.actIndex || 0})),
+                        loss_fn:         lossFnNames[this.lossIndex],
+                        epochs:          parseInt(this.params.epochs) || 10,
+                        batch_size:      parseInt(this.params.batchSize) || 16,
+                        lr:              parseFloat(this.params.lr) || 0.001,
+                        momentum:        parseFloat(this.params.momentum) || 0.9,
+                        val_split:       parseFloat(this.params.valSplit) || 20,
+                        rotations:       parseInt(this.params.rotations) || 3,
+                    };
+                    const startResp = await fetch('/api/train/start', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(config),
+                    });
+                    if (!startResp.ok) throw new Error(`Start failed: ${startResp.status}`);
+                    this._connectSSE();
+                } catch (err) {
+                    this.status = 'setup';
+                    alert('Error: ' + err.message);
+                }
+            },
+
+            _connectSSE() {
+                if (this.eventSource) this.eventSource.close();
+                this.eventSource = new EventSource(`/api/train/progress/${this.jobId}`);
+                this.eventSource.onmessage = (e) => {
+                    const data = JSON.parse(e.data);
+                    if (data.type === 'extracting') {
+                        this.status = 'extracting';
+                        this.progress = data.progress || 0;
+                    } else if (data.type === 'epoch') {
+                        this.status = 'training';
+                        this.currentEpoch = data.epoch;
+                        this.progress = data.progress;
+                        this.metrics.trainLoss = data.train_loss;
+                        this.metrics.valLoss   = data.val_loss;
+                        this.metrics.accuracy  = data.accuracy;
+                        this.metrics.gpu       = (data.memory_mb || 0) / 1000;
+                        this.histories.trainLoss.push(Math.max(0, data.train_loss));
+                        this.histories.valLoss.push(Math.max(0, data.val_loss));
+                        this.histories.accuracy.push(data.accuracy);
+                        this.histories.gpu.push(this.metrics.gpu);
+                        this.$nextTick(() => {
+                            ['g1','g2','g3','g4'].forEach(r => { if(this.$refs[r]) this.$refs[r].scrollLeft = this.$refs[r].scrollWidth; });
+                        });
+                    } else if (data.type === 'completed') {
+                        this.status = 'completed';
+                        this.progress = 100;
+                        this.eventSource.close();
+                        this.eventSource = null;
+                        if(window.dim3Sound) window.dim3Sound.play('switch');
+                    } else if (data.type === 'error') {
+                        this.eventSource.close();
+                        this.eventSource = null;
+                        this.status = 'setup';
+                        alert('Training error: ' + (data.message || 'Unknown error'));
+                    }
+                };
+                this.eventSource.onerror = () => {};
+            },
+
+            pauseTraining() {
+                this.status = 'paused';
+                fetch(`/api/train/pause/${this.jobId}`, {method: 'POST'}).catch(() => {});
+            },
+
+            resumeTraining() {
+                this.status = 'training';
+                fetch(`/api/train/resume/${this.jobId}`, {method: 'POST'}).catch(() => {});
+            },
+
+            saveModel() {
+                this.modelName = 'my_model';
+                this.showNameModal = true;
+                this.$nextTick(() => this.$refs.nameInput?.focus());
+            },
+
+            confirmSave() {
+                const name = (this.modelName || 'my_model').replace(/[^a-zA-Z0-9_-]/g, '_');
+                if (this.jobId) window.location.href = `/api/train/download/${this.jobId}?name=${encodeURIComponent(name)}`;
+                this.showNameModal = false;
+            },
+
+            exportCSV() {
+                let csv = "Epoch,Train Loss,Validation Loss,Accuracy,GPU VRAM\n";
+                for(let i=0; i<this.histories.trainLoss.length; i++) {
+                    csv += `${i+1},${this.histories.trainLoss[i].toFixed(4)},${this.histories.valLoss[i].toFixed(4)},${this.histories.accuracy[i].toFixed(4)},${this.histories.gpu[i].toFixed(2)}\n`;
+                }
+                let blob = new Blob([csv], {type: 'text/csv'});
+                let url = URL.createObjectURL(blob);
+                let a = document.createElement('a');
+                a.href = url;
+                a.download = 'training_metrics.csv';
+                a.click();
+            },
+
+        }
+    }
+</script>
