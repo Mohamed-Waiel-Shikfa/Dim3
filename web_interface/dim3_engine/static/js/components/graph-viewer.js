@@ -211,9 +211,9 @@ export class GraphViewer {
         this.transform.y = centerY;
 
         // Force constants tuned so equilibrium radius ≈ (N*REPULSE/GRAVITY)^(1/3) ≈ 46 units
-        const REST    = 20;
+        const REST    = 45;
         const SPRING  = 0.02;
-        const REPULSE = 30;
+        const REPULSE = 180;
         const GRAVITY = 0.1;
         const DECAY   = 0.985;
         const n = this.nodes.length;
@@ -319,17 +319,21 @@ export class GraphViewer {
             this.ctx.arc(sx, sy, node.radius * this.transform.k, 0, Math.PI * 2);
 
             if (isHovered) {
+                this.ctx.globalAlpha = 1.0;
                 this.ctx.fillStyle = this.config.highlightColor;
                 this.ctx.shadowColor = this.config.nodeColor;
                 this.ctx.shadowBlur = 10;
             } else if (isNeighbor) {
+                this.ctx.globalAlpha = 1.0;
                 this.ctx.fillStyle = this.config.highlightColor;
                 this.ctx.shadowBlur = 0;
             } else {
+                this.ctx.globalAlpha = 0.25;
                 this.ctx.fillStyle = this.config.nodeColor;
                 this.ctx.shadowBlur = 0;
             }
             this.ctx.fill();
+            this.ctx.globalAlpha = 1.0;
             this.ctx.shadowBlur = 0;
         }
     }

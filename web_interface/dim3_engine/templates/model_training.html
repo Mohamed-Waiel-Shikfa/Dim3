@@ -763,11 +763,16 @@
 
             pauseTraining() {
                 this.status = 'paused';
+                clearInterval(this.timerInterval);
                 fetch(`/api/train/pause/${this.jobId}`, {method: 'POST'}).catch(() => {});
             },
 
             resumeTraining() {
                 this.status = 'training';
+                let timeParts = this.elapsedTime.split(':');
+                let elapsedSeconds = parseInt(timeParts[0]) * 60 + parseInt(timeParts[1]);
+                this.startTime = Date.now() - (elapsedSeconds * 1000);
+                this.startTimer();
                 fetch(`/api/train/resume/${this.jobId}`, {method: 'POST'}).catch(() => {});
             },
 

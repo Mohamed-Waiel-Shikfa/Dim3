@@ -10,6 +10,7 @@ import uuid
 import numpy as np
 import trimesh
 from pathlib import Path
+import platform
 
 
 class ProcessingPipeline:
@@ -34,28 +35,61 @@ class ProcessingPipeline:
             raise ValueError("No active session. Call new_session() first.")
         return self.session_dir
 
+    def _find_blender(self) -> list:
+        """Finds the Blender executable based on the operating system."""
+        system = platform.system()
+
+        # 1. Check if 'blender' is already in the system PATH
+        path_executable = shutil.which("blender")
+        if path_executable:
+            return [path_executable, "--background", "--python"]
+
+        # 2. Fallback to common OS-specific installation paths
+        if system == "Darwin":  # macOS
+            mac_path = "/Applications/Blender.app/Contents/MacOS/Blender"
+            if Path(mac_path).exists():
+                return [mac_path, "--background", "--python"]
+
+        elif system == "Windows":
+            win_path = r"C:\Program Files\Blender Foundation\Blender\blender.exe"
+            if Path(win_path).exists():
+                return [win_path, "--background", "--python"]
+
+        elif system == "Linux":
+            linux_path = "/usr/bin/blender"
+            if Path(linux_path).exists():
+                return [linux_path, "--background", "--python"]
+
+        # 3. Last resort/Error handling
+        raise EnvironmentError(
+            "Blender executable not found. Please ensure it is installed and in your PATH."
+        )
+
     # ── Step 1: Ingest ──────────────────────────────────────────────────────
     def ingest(self, file_path: str) -> dict:
         import subprocess
         sd = self._get_session_dir()
-        
+
         orig_name = Path(file_path).stem.split("_", 1)[-1]
         cleaned_obj = sd / f"{orig_name}_cleaned.obj"
         high_poly_obj = sd / f"{orig_name}_remesh_high.obj"
         low_poly_obj = sd / f"{orig_name}_remesh_low.obj"
-        
-        BLENDER_CMD = ["/Applications/Blender.app/Contents/MacOS/Blender", "--background", "--python"]
-        S_ROOT = "/Users/moha_alku/15-288 Project/Dim3/scripts"
-        
+
+        # Dynamically determine the command based on OS
+        BLENDER_CMD = self._find_blender()
+
+        # Dynamically handle S_ROOT (relative to the script location)
+        S_ROOT = Path(__file__).parent.absolute() / "../../../scripts"
+
         print("Running 3d_file_to_obj...")
         subprocess.run(BLENDER_CMD + [f"{S_ROOT}/3d_file_to_obj.py", "--", "--input_file", str(file_path), "--output_file", str(cleaned_obj)], check=True)
-        
+
         print("Running mesh_cleanup HIGH...")
         subprocess.run(BLENDER_CMD + [f"{S_ROOT}/mesh_cleanup.py", "--", "--input_file", str(cleaned_obj), "--output_file", str(high_poly_obj), "--voxel_size", "0.01"], check=True)
 
         print("Running mesh_cleanup LOW...")
         subprocess.run(BLENDER_CMD + [f"{S_ROOT}/mesh_cleanup.py", "--", "--input_file", str(cleaned_obj), "--output_file", str(low_poly_obj), "--voxel_size", "0.05"], check=True)
-        
+
         return {
             "obj_url": f"/data/{self.session_id}/{orig_name}_cleaned.obj",
             "high_poly_url": f"/data/{self.session_id}/{orig_name}_remesh_high.obj",

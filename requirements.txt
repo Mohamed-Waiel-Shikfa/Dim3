@@ -5,10 +5,12 @@
 #
 # Note on bpy (Blender Python API):
 #   bpy is NOT installed via pip.  It is used exclusively as the built-in
-#   Python interpreter that ships with the Blender executable.  Run Blender
-#   scripts through:
-#       blender --background --python scripts/blender_pipeline.py
+#   Python interpreter that ships with the Blender executable.
 # =============================================================================
+
+# ── Deep Learning  ────────────────────────────────────────────────────────────
+torch
+torchvision
 
 # ── Classics ──────────────────────────────────────────────────────────────────
 numpy
@@ -29,6 +31,7 @@ tqdm
 fastapi
 uvicorn
 jinja2
+python-multipart
 
 # ── Python 3D Geometry & Mesh Processing ──────────────────────────────────────
 trimesh
