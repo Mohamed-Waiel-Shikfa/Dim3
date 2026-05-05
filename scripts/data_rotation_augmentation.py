@@ -4,12 +4,19 @@ import numpy as np
 import scipy.spatial.transform as st
 import random
 import re
+import sys # Added for CLI args
+import shutil # Moved to top for consistency
 from tqdm import tqdm
+import sys
 
-#config
-SOURCE_DIR = "/home/pocoyo/Documents/CMUQ/semesters/Spring 2026/15288/project/vehicules_files"
-TARGET_DIR = "/home/pocoyo/Documents/CMUQ/semesters/Spring 2026/15288/project/vehicules_files_new"
-TARGET_COUNT = 30
+# Check for minimum required arguments
+if len(sys.argv) < 4:
+    print("Usage: python script.py [SOURCE_DIR] [TARGET_DIR] [TARGET_COUNT]")
+    sys.exit(1) # Stops the script gracefully
+
+SOURCE_DIR = sys.argv[1]
+TARGET_DIR = sys.argv[2]
+TARGET_COUNT = int(sys.argv[3])
 
 #ensure target dir exists
 os.makedirs(TARGET_DIR, exist_ok=True)
@@ -38,7 +45,6 @@ def augment_class(label, files):
         return
 
     #first copy originals
-    import shutil
     for f in files:
         shutil.copy2(os.path.join(SOURCE_DIR, f), os.path.join(TARGET_DIR, f))
 
