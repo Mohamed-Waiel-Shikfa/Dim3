@@ -172,11 +172,6 @@
                             <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest mt-1">Design network topology</p>
                         </div>
 
-                        <div class="absolute left-1/2 -translate-x-1/2 flex flex-col items-center top-0">
-                            <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Total Parameters</span>
-                            <span class="text-xl font-black text-[var(--accent)] font-mono [text-shadow:var(--text-glow)] mt-0.5" x-text="totalParameters"></span>
-                        </div>
-
                         <div class="flex gap-2">
                             <button @click="addLayer('Conv3D')" class="bg-black/60 border border-white/10 text-slate-300 hover:text-[var(--accent)] hover:border-[var(--accent)] px-3 py-1 rounded text-[10px] font-black uppercase tracking-wider transition-all">+ Conv</button>
                             <button @click="addLayer('MaxPool')" class="bg-black/60 border border-white/10 text-slate-300 hover:text-[var(--accent)] hover:border-[var(--accent)] px-3 py-1 rounded text-[10px] font-black uppercase tracking-wider transition-all">+ Pool</button>
@@ -351,12 +346,12 @@
 
                 <div class="bg-black/30 rounded-2xl border border-[var(--accent-dim)] p-4 flex flex-col relative overflow-hidden">
                     <div class="flex justify-between items-center z-10 mb-2 shrink-0">
-                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">GPU VRAM Usage</span>
-                        <span class="text-xl font-black text-purple-400 font-mono" x-text="metrics.gpu.toFixed(1) + ' GB'"></span>
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">RAM Usage</span>
+                        <span class="text-xl font-black text-purple-400 font-mono" x-text="metrics.gpu.toFixed(0) + ' MB'"></span>
                     </div>
                     <div class="flex-1 flex items-end gap-[2px] z-10 overflow-x-auto overflow-y-hidden hide-scrollbar scroll-smooth" x-ref="g4">
                         <template x-for="(val, i) in histories.gpu" :key="i">
-                            <div class="w-[6px] shrink-0 bg-purple-500 opacity-60 rounded-t-sm transition-all" :style="`height: ${(val / 24)*100}%`"></div>
+                            <div class="w-[6px] shrink-0 bg-purple-500 opacity-60 rounded-t-sm transition-all" :style="`height: ${(val / 4000)*100}%`"></div>
                         </template>
                     </div>
                 </div>
@@ -381,8 +376,9 @@
                             Cancel
                         </button>
                     </div>
-                    <div class="ml-auto flex items-center text-slate-400 font-mono text-sm">
-                        Epoch <span class="text-white mx-2 text-xl" x-text="currentEpoch"></span> / <span x-text="params.epochs" class="ml-1"></span>
+                    <div class="ml-auto flex items-center gap-6 text-slate-400 font-mono text-sm">
+                        <span>Elapsed <span class="text-white ml-1" x-text="elapsedTime"></span></span>
+                        <span>Epoch <span class="text-white mx-2 text-xl" x-text="currentEpoch"></span> / <span x-text="params.epochs" class="ml-1"></span></span>
                     </div>
                 </div>
 
@@ -452,6 +448,9 @@
             files: [],
             showNameModal: false,
             modelName: 'my_model',
+            startTime: null,
+            elapsedTime: '00:00',
+            timerInterval: null,
             scrollAccumulators: {},
 
             metrics: {
@@ -547,6 +546,9 @@
             resetSetup() {
                 if (this.jobId) fetch(`/api/train/stop/${this.jobId}`, {method: 'POST'}).catch(() => {});
                 if (this.eventSource) { this.eventSource.close(); this.eventSource = null; }
+                clearInterval(this.timerInterval);
+                this.elapsedTime = '00:00';
+                this.startTime = null;
                 this.jobId = null;
                 this.status = 'setup';
                 this.progress = 0;
@@ -731,13 +733,17 @@
                         this.status = 'extracting';
                         this.progress = data.progress || 0;
                     } else if (data.type === 'epoch') {
+                        if (this.status !== 'training') {
+                            this.startTime = Date.now();
+                            this.startTimer();
+                        }
                         this.status = 'training';
                         this.currentEpoch = data.epoch;
                         this.progress = data.progress;
                         this.metrics.trainLoss = data.train_loss;
                         this.metrics.valLoss   = data.val_loss;
                         this.metrics.accuracy  = data.accuracy;
-                        this.metrics.gpu       = (data.memory_mb || 0) / 1000;
+                        this.metrics.gpu       = (data.memory_mb || 0);
                         this.histories.trainLoss.push(Math.max(0, data.train_loss));
                         this.histories.valLoss.push(Math.max(0, data.val_loss));
                         this.histories.accuracy.push(data.accuracy);
@@ -748,10 +754,12 @@
                     } else if (data.type === 'completed') {
                         this.status = 'completed';
                         this.progress = 100;
+                        clearInterval(this.timerInterval);
                         this.eventSource.close();
                         this.eventSource = null;
                         if(window.dim3Sound) window.dim3Sound.play('switch');
                     } else if (data.type === 'error') {
+                        clearInterval(this.timerInterval);
                         this.eventSource.close();
                         this.eventSource = null;
                         this.status = 'setup';
@@ -759,6 +767,16 @@
                     }
                 };
                 this.eventSource.onerror = () => {};
+            },
+
+            startTimer() {
+                clearInterval(this.timerInterval);
+                this.timerInterval = setInterval(() => {
+                    const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+                    const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+                    const s = String(elapsed % 60).padStart(2, '0');
+                    this.elapsedTime = `${m}:${s}`;
+                }, 1000);
             },
 
             pauseTraining() {
