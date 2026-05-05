@@ -3,6 +3,21 @@
 </div>
 
 <div class="w-full h-full flex" x-data="trainingController()" x-init="$nextTick(() => resetSetup())">
+
+    <!-- Model name modal -->
+    <div x-show="showNameModal" x-transition.opacity class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center" style="display:none;">
+        <div class="bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-2xl p-8 w-[380px] shadow-2xl flex flex-col gap-5">
+            <h3 class="text-lg font-black text-[var(--accent)] uppercase tracking-widest [text-shadow:var(--text-glow)]">Name Your Model</h3>
+            <input type="text" x-model="modelName" @keyup.enter="confirmSave()" @keyup.escape="showNameModal=false"
+                   class="bg-black/60 border border-[var(--accent-dim)] rounded-xl px-4 py-3 text-white font-mono text-sm outline-none focus:border-[var(--accent)] transition-colors"
+                   placeholder="my_model" x-ref="nameInput">
+            <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest -mt-2">Downloads as <span class="text-slate-300" x-text="(modelName||'my_model').replace(/[^a-zA-Z0-9_-]/g,'_') + '.zip'"></span></p>
+            <div class="flex gap-3 justify-end">
+                <button @click="showNameModal=false" class="text-slate-500 hover:text-white px-4 py-2 rounded-lg font-bold uppercase text-xs tracking-wider transition-colors">Cancel</button>
+                <button @click="confirmSave()" class="bg-[var(--accent)] text-[var(--bg-panel)] px-6 py-2 rounded-lg font-black uppercase text-xs tracking-wider hover:brightness-110 transition-all shadow-[var(--text-glow)]">Download</button>
+            </div>
+        </div>
+    </div>
     <div class="flex-1 w-full h-full bg-[var(--bg-panel)] border border-[var(--accent-dim)] rounded-3xl p-10 flex flex-col transition-all duration-500 relative overflow-hidden shadow-2xl">
         <div class="absolute inset-0 bg-[var(--accent)] opacity-[0.02] blur-[120px] pointer-events-none"></div>
 
@@ -435,6 +450,8 @@
             eventSource: null,
             jobId: null,
             files: [],
+            showNameModal: false,
+            modelName: 'my_model',
             scrollAccumulators: {},
 
             metrics: {
@@ -469,58 +486,54 @@
             get totalParameters() {
                 try {
                     let total = 0;
-                    let spatial = parseInt(this.params.archParam) || 32;
-                    let channels = 1;
+                    let cur = 0;       // current dimension flowing through layers
                     let isFlattened = false;
 
-                    if (this.modelIndex === 1) {
-                        spatial = parseInt(this.params.archParam) || 1024;
-                        channels = 3;
-                    } else if (this.modelIndex === 2) {
-                        spatial = 1;
-                        channels = 3;
-                        isFlattened = true;
-                    }
+                    if (this.modelIndex === 0) {
+                        // CNN: starts in conv-space; cur tracks channels, spatial tracked separately
+                        let channels = 1;
+                        let spatial = parseInt(this.params.archParam) || 32;
 
-                    for (let layer of this.layers) {
-                        let n = parseInt(layer.nodes) || 1;
-
-                        if (layer.type === 'Conv3D') {
-                            let params = (channels * 27 * n) + n;
-                            total += params;
-                            channels = n;
-                        } else if (layer.type === 'MaxPool') {
-                            spatial = Math.max(1, Math.floor(spatial / 2));
-                        } else if (layer.type === 'Linear') {
-                            let in_features;
-                            if (!isFlattened) {
-                                if (this.modelIndex === 0) {
-                                    in_features = channels * spatial * spatial * spatial;
-                                } else {
-                                    in_features = channels * spatial;
+                        for (let layer of this.layers) {
+                            let n = parseInt(layer.nodes) || 1;
+                            if (layer.type === 'Conv3D' && !isFlattened) {
+                                total += (channels * 27 * n) + n;  // 3x3x3 kernel + bias
+                                channels = n;
+                            } else if (layer.type === 'MaxPool' && !isFlattened) {
+                                spatial = Math.max(1, Math.floor(spatial / 2));
+                            } else if (layer.type === 'Linear') {
+                                if (!isFlattened) {
+                                    cur = channels * spatial * spatial * spatial;
+                                    isFlattened = true;
                                 }
-                                isFlattened = true;
-                            } else {
-                                in_features = channels;
+                                total += (cur * n) + n;
+                                cur = n;
                             }
-                            let params = (in_features * n) + n;
-                            total += params;
-                            channels = n;
+                        }
+                        if (!isFlattened) cur = channels * spatial * spatial * spatial;
+
+                    } else if (this.modelIndex === 1) {
+                        // PointNet: actual input = 26 statistical features (fixed)
+                        cur = 26;
+                        for (let layer of this.layers) {
+                            let n = parseInt(layer.nodes) || 1;
+                            total += (cur * n) + n;
+                            cur = n;
+                        }
+
+                    } else {
+                        // GNN: actual input = 16 graph topology features (fixed)
+                        cur = 16;
+                        for (let layer of this.layers) {
+                            let n = parseInt(layer.nodes) || 1;
+                            total += (cur * n) + n;
+                            cur = n;
                         }
                     }
 
+                    // Output layer
                     let outN = this.outputNodes || 4;
-                    let in_features;
-                    if (!isFlattened) {
-                        if (this.modelIndex === 0) {
-                            in_features = channels * spatial * spatial * spatial;
-                        } else {
-                            in_features = channels * spatial;
-                        }
-                    } else {
-                        in_features = channels;
-                    }
-                    total += (in_features * outN) + outN;
+                    total += (cur * outN) + outN;
 
                     if (isNaN(total)) return '--';
                     if (total >= 1000000) return (total / 1000000).toFixed(2) + ' M';
@@ -759,7 +772,14 @@
             },
 
             saveModel() {
-                if (this.jobId) window.location.href = `/api/train/download/${this.jobId}`;
+                this.modelName = 'my_model';
+                this.showNameModal = true;
+            },
+
+            confirmSave() {
+                const name = (this.modelName || 'my_model').replace(/[^a-zA-Z0-9_-]/g, '_');
+                if (this.jobId) window.location.href = `/api/train/download/${this.jobId}?name=${encodeURIComponent(name)}`;
+                this.showNameModal = false;
             },
 
             exportCSV() {

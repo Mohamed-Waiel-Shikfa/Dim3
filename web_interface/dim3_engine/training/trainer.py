@@ -1,3 +1,5 @@
+import csv
+import json
 import time
 import queue
 import threading
@@ -205,6 +207,15 @@ def run_training(job_id, session_dir, files_by_class, config, progress_q, pause_
             progress_q.put({'type': 'error', 'message': 'Need at least 2 classes (subdirectories) to train.'})
             return
 
+        # Persist training config for the evaluation page
+        sd = Path(session_dir)
+        config_save = {**config, 'class_names': class_names, 'n_classes': n_classes}
+        (sd / f'config_{job_id}.json').write_text(json.dumps(config_save, indent=2))
+
+        metrics_path = sd / f'metrics_{job_id}.csv'
+        with open(metrics_path, 'w', newline='') as mf:
+            csv.writer(mf).writerow(['epoch', 'train_loss', 'val_loss', 'accuracy', 'memory_mb'])
+
         all_paths = [(cls, p) for cls, paths in files_by_class.items() for p in paths]
         total_files = len(all_paths)
         X_list, y_list = [], []
@@ -258,12 +269,13 @@ def run_training(job_id, session_dir, files_by_class, config, progress_q, pause_
         X_tr, y_tr = X[perm[n_val:]], y[perm[n_val:]]
         X_val, y_val = X[perm[:n_val]], y[perm[:n_val]]
 
+        feature_mean = feature_std = None
         if model_type != 'cnn' and len(X_tr) > 0:
-            mean  = X_tr.mean(0)
-            std   = X_tr.std(0) + 1e-8
-            X_tr  = (X_tr  - mean) / std
+            feature_mean = X_tr.mean(0)
+            feature_std  = X_tr.std(0) + 1e-8
+            X_tr  = (X_tr  - feature_mean) / feature_std
             if len(X_val) > 0:
-                X_val = (X_val - mean) / std
+                X_val = (X_val - feature_mean) / feature_std
 
         model = _build_model(model_type, layer_cfgs, in_dim, n_classes)
         optim = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
@@ -312,6 +324,10 @@ def run_training(job_id, session_dir, files_by_class, config, progress_q, pause_
                 with torch.no_grad():
                     v_loss = compute_loss(model(X_val), y_val).item()
 
+            mem = _memory_mb()
+            with open(metrics_path, 'a', newline='') as mf:
+                csv.writer(mf).writerow([epoch, f'{tr_loss:.6f}', f'{v_loss:.6f}', f'{acc:.6f}', f'{mem:.1f}'])
+
             progress_q.put({
                 'type':       'epoch',
                 'epoch':      epoch,
@@ -320,16 +336,18 @@ def run_training(job_id, session_dir, files_by_class, config, progress_q, pause_
                 'val_loss':   float(v_loss),
                 'accuracy':   float(acc),
                 'progress':   30.0 + 70.0 * epoch / epochs,
-                'memory_mb':  _memory_mb(),
+                'memory_mb':  mem,
             })
 
-        model_path = Path(session_dir) / f'model_{job_id}.pt'
+        model_path = sd / f'model_{job_id}.pt'
         torch.save({
-            'model_state': model.state_dict(),
-            'class_names': class_names,
-            'model_type':  model_type,
-            'in_dim':      in_dim,
-            'n_classes':   n_classes,
+            'model_state':  model.state_dict(),
+            'class_names':  class_names,
+            'model_type':   model_type,
+            'in_dim':       in_dim,
+            'n_classes':    n_classes,
+            'feature_mean': feature_mean.tolist() if feature_mean is not None else None,
+            'feature_std':  feature_std.tolist()  if feature_std  is not None else None,
         }, str(model_path))
         progress_q.put({'type': 'completed', 'job_id': job_id})
 

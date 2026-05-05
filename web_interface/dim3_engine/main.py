@@ -1,4 +1,6 @@
 import asyncio
+import csv
+import io
 import json
 import os
 import queue
@@ -7,6 +9,7 @@ import shutil
 import threading
 import traceback
 import uuid
+import zipfile
 from pathlib import Path
 from typing import List
 
@@ -25,11 +28,14 @@ BASE_DIR = Path(__file__).parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 OUTPUT_DIR = BASE_DIR / "processed"
 TRAINING_DIR = BASE_DIR / "training_sessions"
+EVAL_DIR     = BASE_DIR / "eval_sessions"
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 TRAINING_DIR.mkdir(exist_ok=True)
+EVAL_DIR.mkdir(exist_ok=True)
 
 training_jobs: dict = {}
+eval_sessions: dict = {}
 
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -291,14 +297,132 @@ async def train_stop(job_id: str):
 
 
 @app.get("/api/train/download/{job_id}")
-async def train_download(job_id: str):
+async def train_download(job_id: str, name: str = "model"):
     if job_id not in training_jobs:
         return JSONResponse({"error": "Job not found"}, status_code=404)
-    model_path = Path(training_jobs[job_id]["session_dir"]) / f"model_{job_id}.pt"
+    sd = Path(training_jobs[job_id]["session_dir"])
+    model_path   = sd / f"model_{job_id}.pt"
+    config_path  = sd / f"config_{job_id}.json"
+    metrics_path = sd / f"metrics_{job_id}.csv"
     if not model_path.exists():
         return JSONResponse({"error": "Model not ready"}, status_code=404)
-    return FileResponse(
-        str(model_path),
-        filename=f"dim3_model_{job_id}.pt",
-        media_type="application/octet-stream",
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(str(model_path),   f"{name}/model.pt")
+        if config_path.exists():
+            zf.write(str(config_path),  f"{name}/config.json")
+        if metrics_path.exists():
+            zf.write(str(metrics_path), f"{name}/metrics.csv")
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}.zip"'},
     )
+
+
+# ── API: Model Evaluation ─────────────────────────────────────────────────────
+
+def _cls_from_path(rel: str) -> str:
+    parts = Path(rel).parts
+    if len(parts) >= 3:
+        return parts[1].lower()
+    stem = re.sub(r"\.[^.]+$", "", parts[-1])
+    m = re.match(r"^([a-zA-Z]+)", stem)
+    return m.group(1).lower() if m else "unlabeled"
+
+
+@app.post("/api/eval/upload")
+async def eval_upload(file: UploadFile = File(...)):
+    try:
+        eval_id  = str(uuid.uuid4())[:8]
+        eval_dir = EVAL_DIR / eval_id
+        eval_dir.mkdir(parents=True)
+
+        zip_path = eval_dir / "upload.zip"
+        zip_path.write_bytes(await file.read())
+
+        with zipfile.ZipFile(str(zip_path), "r") as zf:
+            zf.extractall(str(eval_dir))
+
+        config_files  = sorted(eval_dir.rglob("config*.json"))
+        metrics_files = sorted(eval_dir.rglob("metrics*.csv"))
+        model_files   = sorted(eval_dir.rglob("model*.pt"))
+
+        if not config_files or not model_files:
+            return JSONResponse({"error": "Invalid model ZIP — missing config.json or model.pt"}, status_code=400)
+
+        with open(config_files[0]) as f:
+            config = json.load(f)
+
+        metrics = []
+        if metrics_files:
+            with open(metrics_files[0], newline="") as f:
+                metrics = list(csv.DictReader(f))
+
+        eval_sessions[eval_id] = {
+            "model_dir":     str(model_files[0].parent),
+            "model_session": None,
+        }
+
+        return JSONResponse({"eval_id": eval_id, "config": config, "metrics": metrics})
+    except Exception as exc:
+        traceback.print_exc()
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+def _get_model_session(eval_id: str):
+    if eval_id not in eval_sessions:
+        return None
+    sess = eval_sessions[eval_id]
+    if sess["model_session"] is None:
+        from training.inference import ModelSession
+        sess["model_session"] = ModelSession(sess["model_dir"])
+    return sess["model_session"]
+
+
+@app.post("/api/eval/predict/{eval_id}")
+async def eval_predict(eval_id: str, file: UploadFile = File(...)):
+    try:
+        ms = _get_model_session(eval_id)
+        if ms is None:
+            return JSONResponse({"error": "Session not found"}, status_code=404)
+        tmp = EVAL_DIR / eval_id / f"tmp_{uuid.uuid4().hex[:8]}_{file.filename}"
+        tmp.write_bytes(await file.read())
+        probs = ms.predict(str(tmp))
+        tmp.unlink(missing_ok=True)
+        predicted = max(probs, key=probs.get)
+        return JSONResponse({"probabilities": probs, "predicted_class": predicted, "confidence": probs[predicted]})
+    except Exception as exc:
+        traceback.print_exc()
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/eval/batch/{eval_id}")
+async def eval_batch(eval_id: str, files: List[UploadFile] = File(...)):
+    try:
+        ms = _get_model_session(eval_id)
+        if ms is None:
+            return JSONResponse({"error": "Session not found"}, status_code=404)
+
+        tmp_dir = EVAL_DIR / eval_id / f"batch_{uuid.uuid4().hex[:6]}"
+        tmp_dir.mkdir()
+
+        files_by_class: dict = {}
+        for f in files:
+            if not f.filename or f.filename.startswith("."):
+                continue
+            cls     = _cls_from_path(f.webkitfilename if hasattr(f, "webkitfilename") else f.filename)
+            cls_dir = tmp_dir / cls
+            cls_dir.mkdir(exist_ok=True)
+            sp = cls_dir / f"{uuid.uuid4().hex[:6]}_{Path(f.filename).name}"
+            sp.write_bytes(await f.read())
+            files_by_class.setdefault(cls, []).append(str(sp))
+
+        result = ms.evaluate(files_by_class)
+        shutil.rmtree(str(tmp_dir))
+        return JSONResponse(result)
+    except Exception as exc:
+        traceback.print_exc()
+        return JSONResponse({"error": str(exc)}, status_code=500)
